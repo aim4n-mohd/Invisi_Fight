@@ -103,5 +103,17 @@ describe('InvisiFightRoom lifecycle', () => {
     const restoredSession = await sessionFor(restoredRoom);
     expect(restoredSession.playerId).toBe(guestSession.playerId);
     expect(restoredRoom.state.players.get(restoredSession.playerId)?.connected).toBe(true);
+
+    const replacementRoom = await client.joinById<LifecycleWireState>(restoredSession.roomId, {
+      playerName: 'Guest',
+      sessionToken: restoredSession.sessionToken,
+    });
+    rooms.push(replacementRoom);
+    replacementRoom.onMessage('private:state', () => undefined);
+    replacementRoom.onMessage('private:sonar', () => undefined);
+    const replacementSession = await sessionFor(replacementRoom);
+    expect(replacementSession.playerId).toBe(restoredSession.playerId);
+    await waitFor(() => !restoredRoom.connection.isOpen);
+    expect(replacementRoom.state.players.get(replacementSession.playerId)?.connected).toBe(true);
   }, 10_000);
 });

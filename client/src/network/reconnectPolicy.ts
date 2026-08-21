@@ -11,8 +11,9 @@ function isReservationPending(error: unknown): boolean {
 
 const wait: Delay = (delayMs) => new Promise((resolve) => window.setTimeout(resolve, delayMs));
 
-export async function reconnectWithReservationRetry<T>(
+export async function reconnectWithSessionFallback<T>(
   reconnect: () => Promise<T>,
+  resumeSession: () => Promise<T>,
   delay: Delay = wait,
 ): Promise<T> {
   for (let attempt = 0; ; attempt += 1) {
@@ -20,7 +21,8 @@ export async function reconnectWithReservationRetry<T>(
       return await reconnect();
     } catch (error) {
       const retryDelayMs = RETRY_DELAYS_MS[attempt];
-      if (retryDelayMs === undefined || !isReservationPending(error)) throw error;
+      if (!isReservationPending(error)) throw error;
+      if (retryDelayMs === undefined) return resumeSession();
       await delay(retryDelayMs);
     }
   }

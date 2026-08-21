@@ -98,6 +98,7 @@ export class InvisiFightRoom extends Room<InvisiFightRoomState> {
         player.connected = true;
         const rotated = this.#sessions.rotate(joinOptions.sessionToken ?? '');
         const token = rotated ?? joinOptions.sessionToken ?? '';
+        this.#replaceRuntimeConnection(player.playerId, client.sessionId);
         this.#runtimeByClient.set(client.sessionId, {
           playerId: player.playerId,
           sessionToken: token,
@@ -501,6 +502,16 @@ export class InvisiFightRoom extends Room<InvisiFightRoomState> {
     return this.clients.find(
       (client) => this.#runtimeByClient.get(client.sessionId)?.playerId === playerId,
     );
+  }
+
+  #replaceRuntimeConnection(playerId: string, replacementSessionId: string): void {
+    for (const [clientSessionId, runtime] of this.#runtimeByClient) {
+      if (runtime.playerId !== playerId || clientSessionId === replacementSessionId) continue;
+      this.#runtimeByClient.delete(clientSessionId);
+      this.clients
+        .find((client) => client.sessionId === clientSessionId)
+        ?.leave(4000, 'Session replaced.');
+    }
   }
 
   #sendError(client: Client, error: unknown): void {
