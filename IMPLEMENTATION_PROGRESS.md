@@ -9,7 +9,7 @@ Source of truth: `build-plan-artifacts/tasks.md`, interpreted with the stricter 
 - [x] Phase 2 — Core Features (`PHASE-015` through `PHASE-039`)
 - [x] Phase 3 — Integration (`PHASE-040` through `PHASE-045`)
 - [x] Phase 4 — Polish (`PHASE-046` through `PHASE-050`)
-- [ ] Phase 5 — Launch Readiness (`PHASE-051` through `PHASE-055`)
+- [x] Phase 5 — Launch Readiness (`PHASE-051` through `PHASE-055`)
 
 ## Verified commands
 
@@ -72,11 +72,32 @@ Phase 4 passed with 37 Vitest checks and 9 Playwright checks on 2026-08-21. Brow
 
 ### Phase 5
 
-- [x] `PHASE-051` — 38 deterministic tests cover shared rules, phase timing, firing order, sonar, damage, elimination, input limiting, health, and room lifecycle.
-- [ ] `PHASE-052` — Localhost create/join/start/winner/replay passes in Chromium, Firefox, and WebKit; real-transport reconnect passes in the integration suite. The GitHub Pages landing page and direct room-route fallback are live and verified. Deployed multiplayer validation remains pending until the Render service is created.
+- [x] `PHASE-051` — 41 deterministic tests cover shared rules, phase timing, firing order, sonar, damage, elimination, input limiting, health, transport reconnect, signed-session recovery, and room lifecycle.
+- [x] `PHASE-052` — Localhost create/join/start/winner/replay and refresh recovery pass in Chromium, Firefox, and WebKit. The deployed GitHub Pages client completed a Render-backed two-player match in 35.3 seconds and restored the same room after refresh in 14.4 seconds.
 - [x] `PHASE-053` — The client interpolates private position updates, the server publishes at 12 Hz and caps input at 30 messages per second per player, and Phaser is isolated in a lazy arena chunk. Full-match browser runs cover the supported engines.
 - [x] `PHASE-054` — Public schema tests prohibit live position, velocity, and aim fields; session and reconnect tokens stay in `sessionStorage` and out of URLs and logs.
-- [ ] `PHASE-055` — The compiled production health endpoint returns HTTP 200, structured logs hash player identifiers, GitHub CI is green, the server validation workflow is green, and Pages deployment is green. The expected Render endpoint returns HTTP 404 until its blueprint is created, so live server health and recovery remain pending.
+- [x] `PHASE-055` — Render health returns HTTP 200 from build `6cc75b6`; structured logs hash player identifiers; latest CI, server validation, and Pages deployment workflows are green; and live recovery was verified against the deployed client and server.
+
+Launch-readiness verification on 2026-08-21:
+
+```powershell
+pnpm.cmd run format:check
+pnpm.cmd run ci
+pnpm.cmd run test:e2e
+$env:PLAYWRIGHT_BASE_URL='https://aim4n-mohd.github.io/Invisi_Fight/'
+$env:PLAYWRIGHT_SKIP_WEBSERVER='1'
+pnpm.cmd exec playwright test client/e2e/multiplayer.spec.ts --project=chromium --grep "reconnects after refreshing"
+pnpm.cmd exec playwright test client/e2e/multiplayer.spec.ts --project=chromium --grep "two players can create"
+curl.exe https://invisi-fight-server.onrender.com/healthz
+```
+
+Live targets:
+
+- Client: `https://aim4n-mohd.github.io/Invisi_Fight/`
+- Server health: `https://invisi-fight-server.onrender.com/healthz`
+- GitHub CI: `https://github.com/aim4n-mohd/Invisi_Fight/actions/runs/32507681008`
+- Server validation: `https://github.com/aim4n-mohd/Invisi_Fight/actions/runs/32507680985`
+- Pages deployment: `https://github.com/aim4n-mohd/Invisi_Fight/actions/runs/32507892755`
 
 ## Decisions applied
 
@@ -84,4 +105,5 @@ Phase 4 passed with 37 Vitest checks and 9 Playwright checks on 2026-08-21. Brow
 - Sensitive room and reconnect tokens use `sessionStorage`, never `localStorage` or URLs.
 - The GitHub Pages base path is `/Invisi_Fight/`, preserving the repository's exact case.
 - The production client falls back to the `invisi-fight-server` Render blueprint URL; GitHub repository variables can override it when a different service name is used.
+- Render is configured with `autoDeployTrigger: commit`; the initial post-Blueprint update was manually deployed after confirming the service was still on its first build.
 - No accounts, database, ads, payments, analytics, chat, bots, or offline mode are being added.
