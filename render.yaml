@@ -4,6 +4,7 @@ services:
     runtime: node
     region: singapore
     plan: free
+    autoDeployTrigger: commit
     buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter @invisi-fight/shared build && pnpm --filter @invisi-fight/server build
     startCommand: pnpm --filter @invisi-fight/server start
     healthCheckPath: /healthz
