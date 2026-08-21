@@ -73,10 +73,10 @@ Phase 4 passed with 37 Vitest checks and 9 Playwright checks on 2026-08-21. Brow
 ### Phase 5
 
 - [x] `PHASE-051` — 38 deterministic tests cover shared rules, phase timing, firing order, sonar, damage, elimination, input limiting, health, and room lifecycle.
-- [ ] `PHASE-052` — Localhost create/join/start/winner/replay passes in Chromium, Firefox, and WebKit; real-transport reconnect passes in the integration suite. GitHub Pages and Render validation remain pending until both services are deployed.
+- [ ] `PHASE-052` — Localhost create/join/start/winner/replay passes in Chromium, Firefox, and WebKit; real-transport reconnect passes in the integration suite. The GitHub Pages landing page and direct room-route fallback are live and verified. Deployed multiplayer validation remains pending until the Render service is created.
 - [x] `PHASE-053` — The client interpolates private position updates, the server publishes at 12 Hz and caps input at 30 messages per second per player, and Phaser is isolated in a lazy arena chunk. Full-match browser runs cover the supported engines.
 - [x] `PHASE-054` — Public schema tests prohibit live position, velocity, and aim fields; session and reconnect tokens stay in `sessionStorage` and out of URLs and logs.
-- [ ] `PHASE-055` — The compiled production health endpoint returns HTTP 200 and structured logs hash player identifiers. Live deploy status and recovery remain pending with the deployed services.
+- [ ] `PHASE-055` — The compiled production health endpoint returns HTTP 200, structured logs hash player identifiers, GitHub CI is green, the server validation workflow is green, and Pages deployment is green. The expected Render endpoint returns HTTP 404 until its blueprint is created, so live server health and recovery remain pending.
 
 ## Decisions applied
 
