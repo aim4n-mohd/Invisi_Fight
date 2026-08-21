@@ -16,6 +16,8 @@ permissions:
 jobs:
   validate-server:
     runs-on: ubuntu-latest
+    env:
+      RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -30,5 +32,5 @@ jobs:
       - run: pnpm --filter @invisi-fight/server build
       - run: pnpm --filter @invisi-fight/server test
       - name: Trigger Render deploy when configured
-        if: ${{ secrets.RENDER_DEPLOY_HOOK_URL != '' }}
-        run: curl --fail --request POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
+        if: ${{ env.RENDER_DEPLOY_HOOK_URL != '' }}
+        run: curl --fail --request POST "$RENDER_DEPLOY_HOOK_URL"
