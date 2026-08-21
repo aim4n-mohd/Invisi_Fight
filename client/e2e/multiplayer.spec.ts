@@ -1,0 +1,89 @@
+import { expect, test } from '@playwright/test';
+
+test('two players can create, join, and start a private match', async ({ context, page: host }) => {
+  test.setTimeout(90_000);
+  const guest = await context.newPage();
+
+  await host.goto('/');
+  await host.getByLabel('Display name').fill('Host');
+  await host.getByRole('button', { name: 'Create room' }).click();
+  await expect(host.getByRole('heading', { name: 'Waiting for the fight' })).toBeVisible();
+  const roomHeading = await host.getByRole('heading', { name: /^Room [A-Z2-9]{6}$/ }).innerText();
+  const roomCode = roomHeading.replace('Room ', '');
+
+  await guest.goto('/');
+  await guest.getByLabel('Display name').fill('Guest');
+  await guest.getByLabel('Room code').fill(roomCode);
+  await guest.getByRole('button', { name: 'Join room' }).click();
+  await expect(guest.getByRole('heading', { name: 'Waiting for the fight' })).toBeVisible();
+  await expect(host.getByText('Guest')).toBeVisible();
+
+  const startButton = host.getByRole('button', { name: 'Start match' });
+  await expect(startButton).toBeEnabled();
+  await startButton.click();
+  await expect(host.getByRole('heading', { name: 'Stay unreadable' })).toBeVisible();
+  await expect(guest.getByRole('heading', { name: 'Stay unreadable' })).toBeVisible();
+  await Promise.all([
+    expect(host.locator('canvas')).toBeVisible({ timeout: 20_000 }),
+    expect(guest.locator('canvas')).toBeVisible({ timeout: 20_000 }),
+  ]);
+
+  const hostCanvas = await host.locator('canvas').boundingBox();
+  const guestCanvas = await guest.locator('canvas').boundingBox();
+  expect(hostCanvas).not.toBeNull();
+  expect(guestCanvas).not.toBeNull();
+  await host.mouse.move(hostCanvas!.x + 10, hostCanvas!.y + hostCanvas!.height / 2);
+  await guest.mouse.move(
+    guestCanvas!.x + guestCanvas!.width - 10,
+    guestCanvas!.y + guestCanvas!.height / 2,
+  );
+
+  await expect(host.getByText(/wins\.|You survived the dark\./)).toBeVisible({ timeout: 40_000 });
+  await expect(guest.getByText(/wins\.|You survived the dark\./)).toBeVisible({ timeout: 40_000 });
+  await host.getByRole('button', { name: 'Replay to lobby' }).click();
+  await expect(host.getByRole('heading', { name: 'Waiting for the fight' })).toBeVisible();
+  await expect(guest.getByRole('heading', { name: 'Waiting for the fight' })).toBeVisible();
+});
+
+test('keyboard users can create a room and receive focus on the next screen', async ({ page }) => {
+  await page.goto('/');
+  await expect(
+    page.getByRole('heading', { name: 'Move unseen. Scan carefully. Commit the shot.' }),
+  ).toBeFocused();
+  await page.keyboard.press('Tab');
+  const nameInput = page.getByLabel('Display name');
+  await expect(nameInput).toBeFocused();
+  await nameInput.fill('KeyboardHost');
+  await page.keyboard.press('Tab');
+  await expect(page.getByRole('button', { name: 'Create room' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('heading', { name: 'Waiting for the fight' })).toBeFocused();
+});
+
+test('landing actions stack without horizontal overflow on a narrow viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto('/');
+  const panels = page.locator('.landing-grid > .panel');
+  const first = await panels.nth(0).boundingBox();
+  const second = await panels.nth(1).boundingBox();
+  expect(first).not.toBeNull();
+  expect(second).not.toBeNull();
+  expect(second!.y).toBeGreaterThan(first!.y + first!.height);
+  const overflow = await page.evaluate(() => ({
+    innerWidth: window.innerWidth,
+    rootScrollWidth: document.documentElement.scrollWidth,
+    bodyScrollWidth: document.body.scrollWidth,
+    offenders: Array.from(document.querySelectorAll<HTMLElement>('*'))
+      .map((element) => ({
+        tag: element.tagName,
+        className: element.className,
+        right: element.getBoundingClientRect().right,
+      }))
+      .filter((entry) => entry.right > window.innerWidth + 0.5)
+      .slice(0, 5),
+  }));
+  expect(overflow.offenders, JSON.stringify(overflow)).toHaveLength(0);
+  expect(overflow.rootScrollWidth, JSON.stringify(overflow)).toBeLessThanOrEqual(
+    overflow.innerWidth + 1,
+  );
+});

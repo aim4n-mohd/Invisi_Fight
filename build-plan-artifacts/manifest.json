@@ -1,0 +1,424 @@
+{
+  "manifest_version": 1,
+  "exported_at": "2026-08-21T14:42:44Z",
+  "plan": {
+    "title": "Invisi Fight build-plan decisions",
+    "app_type": "web_app",
+    "idea_description": "# Invisi Fight — MVP Build Brief\n\nCreate a detailed, component-by-component build plan for **Invisi Fight**, a desktop-first, browser-based, top-down online multiplayer game built around hidden movement, sonar detection and committed shots.\n\n## Core gameplay\n\nPlayers join a room using a room code. A room requires at least two players, and the room creator starts the match manually. Do not impose a hard player cap in the initial version, although the game should be tested primarily with 2–4 players. Anyone joining during an active match becomes a spectator until the next match.\n\nThe arena is small, open and contains no walls, obstacles or cover. Each player always sees their own character, but opponents remain invisible during planning. Players move with WASD and aim with the mouse. Draw a private aiming line from the player through the cursor position. Players may adjust their aim freely until planning ends. Players can pass through each other so collision cannot reveal hidden opponents.\n\nEach planning phase lasts 10 seconds. Every player has a unique, private sonar sweep: a narrow wedge rotating around their character, completing one rotation every 2 seconds. When the wedge crosses an opponent, show that opponent only to the detecting player as a fading silhouette at the detected position. The silhouette should fade over approximately 1.25 seconds and must not track subsequent movement. Sonar speed, wedge width, planning duration and fade duration must be centrally configurable for balancing.\n\nWhen the timer expires:\n\n1. Freeze all movement and aiming.\n2. If players overlap, separate them slightly and deterministically.\n3. Reveal every surviving player and every locked firing line to all clients.\n4. Resolve shots sequentially according to the displayed firing order.\n5. Show a short pause between shooters, but make each shot instant with a muzzle flash, visible shot line, impact effect and gunshot sound.\n\nA shot travels infinitely along the locked aim direction within the arena. It damages only the first player intersected and does not pierce. Each player begins with three hearts. A hit removes one heart and causes no knockback. If a player loses their final heart before their firing turn, their locked shot is cancelled. Eliminated players leave the arena and spectate. Survivors retain their positions for the next planning phase. The last surviving player wins.\n\nChoose the first round’s firing order randomly. Rotate that order by one position after every round so the first-shooter advantage is distributed fairly. Clearly show the upcoming order during planning and the active shooter during resolution.\n\n## Multiplayer architecture\n\nUse an authoritative server. Clients send movement and aiming inputs; the server owns positions, sonar sweep timing and detection, round timing, locked aim, firing order, ray-hit resolution, hearts, eliminations and match state.\n\nNever send live invisible-opponent positions to unauthorized clients. Synchronize public information such as player names, hearts, match phase, timer and firing order. Send each player their own live position and aim privately. Send sonar detections as private snapshot events containing the detected position. Reveal all required positions only during resolution.\n\nUse server timestamps for phase timing. Include client interpolation for visually smooth movement and an efficient network update rate around 10–15 updates per second. Handle refreshes, temporary disconnects and reconnection gracefully. If the server restarts and an in-memory match is lost, returning players may be sent back to the lobby for the MVP.\n\n## Technology and structure\n\nUse:\n\n- **Client:** Phaser 3, TypeScript and Vite.\n- **Server:** Node.js, TypeScript and Colyseus.\n- **Networking:** Colyseus rooms, state synchronization, private messages and reconnection support.\n- **Frontend hosting:** GitHub Pages.\n- **Server hosting:** Render Free in the Singapore region.\n- **Development:** Client and server running together on localhost.\n- **Testing:** Appropriate TypeScript unit, integration and multi-browser end-to-end testing.\n\nOrganize the repository approximately as:\n\n- `client/` — Phaser game, lobby and interface.\n- `server/` — Colyseus server and authoritative rooms.\n- `shared/` — message contracts, shared types and configurable gameplay constants.\n- `artifacts/` — supplied plans and project artifacts.\n\nThe client must use a configurable server endpoint: local WebSocket during development and secure `wss://` Render endpoint in production. Configure Vite correctly for the GitHub Pages repository subpath. Add a clear “Connecting/Waking multiplayer server” state because Render Free may sleep after inactivity.\n\n## MVP interface\n\nInclude a simple landing/lobby flow with player name, create-room, join-room-code, player list, host start control and connection status. During matches show the round timer, three-heart health, firing order, sonar wedge, private aim line and clear planning/resolution labels. Add match-winner and replay-to-lobby flows.\n\n## Scope exclusions\n\nDo not add accounts, databases, persistent progression, bots, global sonar pulses, obstacles, weapons, power-ups, chat, mobile/touch controls, cosmetics, monetization, analytics or public matchmaking. Focus on making the central hidden-movement, sonar, aiming and sequential-resolution loop reliable and enjoyable.\n\nThe build plan should use TDD where practical, keep gameplay values centralized, divide work into independently verifiable components, and include unit tests for sonar geometry, ray intersections, non-piercing hits, firing-order rotation, damage, elimination and phase transitions; Colyseus room integration tests; multi-browser multiplayer checks; and separate verification steps for localhost, GitHub Pages and the deployed Render server.",
+    "tech_stack": "Phaser 3 + TypeScript + Vite + HTML/CSS frontend, Node.js + Colyseus authoritative server with shared TypeScript contracts, Vitest + Playwright testing, Git/GitHub + GitHub Actions CI/CD, GitHub Pages client hosting, and Render Free server hosting."
+  },
+  "version": {
+    "label": "v1",
+    "number": 1,
+    "status": "generated",
+    "generated_at": "2026-08-21T14:41:13Z",
+    "llm_provider": "openai",
+    "llm_model": "gpt-5.4-mini",
+    "refined_filenames": [],
+    "questions": [
+      {
+        "group": "PRODUCT BRIEF & ROADMAP",
+        "label": "What is the exact v1 success target for the game’s core loop?",
+        "option_a": {
+          "text": "A reliable 2–4 player MVP where a match can be created, played to completion, and replayed to lobby with the hidden-movement loop working end to end",
+          "label": "A"
+        },
+        "option_b": {
+          "text": "A broader launch-ready MVP supporting larger rooms, polish, and multiple match variants beyond the core loop",
+          "label": "B"
+        },
+        "option_c": {
+          "text": null,
+          "label": "C",
+          "is_freetext": true,
+          "placeholder": "Something else... (please describe your preference here)"
+        },
+        "recommended": "A"
+      },
+      {
+        "group": "PRODUCT BRIEF & ROADMAP",
+        "label": "What should be treated as the primary user problem the build plan optimizes for?",
+        "option_a": {
+          "text": "Friends need a fair, low-friction party game that creates tension through incomplete information and quick rematches",
+          "label": "A"
+        },
+        "option_b": {
+          "text": "Competitive players need a more systemic tactical multiplayer game optimized for long-term retention and deeper balancing",
+          "label": "B"
+        },
+        "option_c": {
+          "text": null,
+          "label": "C",
+          "is_freetext": true,
+          "placeholder": "Something else... (please describe your preference here)"
+        },
+        "recommended": "A"
+      },
+      {
+        "group": "PRODUCT BRIEF & ROADMAP",
+        "label": "Which gameplay elements are explicitly out of scope for v1?",
+        "option_a": {
+          "text": "Keep the current exclusions as written, and also exclude spectator controls, match history, replays, and custom room settings",
+          "label": "A"
+        },
+        "option_b": {
+          "text": "Allow a limited set of extras in v1, such as spectator controls or configurable room settings, as long as the core combat loop stays unchanged",
+          "label": "B"
+        },
+        "option_c": {
+          "text": null,
+          "label": "C",
+          "is_freetext": true,
+          "placeholder": "Something else... (please describe your preference here)"
+        },
+        "recommended": "A"
+      },
+      {
+        "group": "PRODUCT BRIEF & ROADMAP",
+        "label": "What level of launch readiness should the MVP target?",
+        "option_a": {
+          "text": "Internal playtest / friends-only prototype with known rough edges acceptable if core gameplay is stable",
+          "label": "A"
+        },
+        "option_b": {
+          "text": "Public beta quality with stronger polish, stronger anti-breakage safeguards, and fewer rough edges in UX and recovery",
+          "label": "B"
+        },
+        "option_c": {
+          "text": null,
+          "label": "C",
+          "is_freetext": true,
+          "placeholder": "Something else... (please describe your preference here)"
+        },
+        "recommended": "A"
+      },
+      {
+        "group": "INFRASTRUCTURE",
+        "label": "Should the game depend on a backend service only, or include any client-side fallback mode?",
+        "option_a": {
+          "text": "Authoritative server required for all matches; no offline or local-only gameplay mode",
+          "label": "A"
+        },
+        "option_b": {
+          "text": "A limited client-only fallback should exist for testing or tutorial use when the server is unavailable",
+          "label": "B"
+        },
+        "option_c": {
+          "text": null,
+          "label": "C",
+          "is_freetext": true,
+          "placeholder": "Something else... (please describe your preference here)"
+        },
+        "recommended": "A"
+      },
+      {
+        "group": "INFRASTRUCTURE",
+        "label": "What deployment shape should the repository plan assume?",
+        "option_a": {
+          "text": "Single monorepo with shared code, client, and server in one repo for coordinated versioning",
+          "label": "A"
+        },
+        "option_b": {
+          "text": "Separate client and server repositories with shared contracts published or copied between them",
+          "label": "B"
+        },
+        "option_c": {
+          "text": null,
+          "label": "C",
+          "is_freetext": true,
+          "placeholder": "Something else... (please describe your preference here)"
+        },
+        "recommended": "A"
+      },
+      {
+        "group": "VISUAL & INTERACTION DESIGN",
+        "label": "Should v1 ship with dark mode support?",
+        "option_a": {
+          "text": "Yes, dark mode is required at launch and should be the default match presentation",
+          "label": "A"
+        },
+        "option_b": {
+          "text": "No, ship a single tuned visual theme first and defer theme switching",
+          "label": "B"
+        },
+        "option_c": {
+          "text": null,
+          "label": "C",
+          "is_freetext": true,
+          "placeholder": "Something else... (please describe your preference here)"
+        },
+        "recommended": "A"
+      },
+      {
+        "group": "VISUAL & INTERACTION DESIGN",
+        "label": "What accessibility target should the UI plan be built around?",
+        "option_a": {
+          "text": "Basic accessibility, aiming for clear contrast, keyboard operability where feasible, and readable status feedback",
+          "label": "A"
+        },
+        "option_b": {
+          "text": "Stronger accessibility, targeting WCAG 2.1 AA-level behavior for contrast, focus states, and interaction clarity",
+          "label": "B"
+        },
+        "option_c": {
+          "text": null,
+          "label": "C",
+          "is_freetext": true,
+          "placeholder": "Something else... (please describe your preference here)"
+        },
+        "recommended": "B"
+      },
+      {
+        "group": "VISUAL & INTERACTION DESIGN",
+        "label": "Should the interface follow an existing reference style or a new original style?",
+        "option_a": {
+          "text": "Use a clean, minimal competitive-game HUD with crisp status panels and restrained effects",
+          "label": "A"
+        },
+        "option_b": {
+          "text": "Match a specific visual reference or brand system that the team already has",
+          "label": "B"
+        },
+        "option_c": {
+          "text": null,
+          "label": "C",
+          "is_freetext": true,
+          "placeholder": "Something else... (please describe your preference here)"
+        },
+        "recommended": "A"
+      },
+      {
+        "group": "DATA & STATE",
+        "label": "Which match data should persist across refresh/reconnect during an active room?",
+        "option_a": {
+          "text": "Only the live room state needed to rejoin the current match, with no long-term persistence after the session ends",
+          "label": "A"
+        },
+        "option_b": {
+          "text": "Room state plus a durable match record so sessions can be resumed, inspected, or replayed later",
+          "label": "B"
+        },
+        "option_c": {
+          "text": null,
+          "label": "C",
+          "is_freetext": true,
+          "placeholder": "Something else... (please describe your preference here)"
+        },
+        "recommended": "A"
+      },
+      {
+        "group": "DATA & STATE",
+        "label": "Do you require any real-time data beyond the authoritative match room state?",
+        "option_a": {
+          "text": "No additional real-time sync outside the match room; all live updates stay inside Colyseus room state and private messages",
+          "label": "A"
+        },
+        "option_b": {
+          "text": "Yes, add an external real-time layer for presence, room discovery, or telemetry-like live updates",
+          "label": "B"
+        },
+        "option_c": {
+          "text": null,
+          "label": "C",
+          "is_freetext": true,
+          "placeholder": "Something else... (please describe your preference here)"
+        },
+        "recommended": "A"
+      },
+      {
+        "group": "IDENTITY & ACCESS",
+        "label": "How should players be identified and authorized in v1?",
+        "option_a": {
+          "text": "Anonymous room-based identity using a chosen display name plus server-issued session token",
+          "label": "A"
+        },
+        "option_b": {
+          "text": "Authenticated identity using account sign-in with persistent user profiles",
+          "label": "B"
+        },
+        "option_c": {
+          "text": null,
+          "label": "C",
+          "is_freetext": true,
+          "placeholder": "Something else... (please describe your preference here)"
+        },
+        "recommended": "A"
+      },
+      {
+        "group": "IDENTITY & ACCESS",
+        "label": "What permission model should the room support?",
+        "option_a": {
+          "text": "Host controls start only; all players can move, aim, and participate equally, while spectators can only watch",
+          "label": "A"
+        },
+        "option_b": {
+          "text": "Multiple roles with additional moderation powers such as kicking, reassigning host, or forcing match state changes",
+          "label": "B"
+        },
+        "option_c": {
+          "text": null,
+          "label": "C",
+          "is_freetext": true,
+          "placeholder": "Something else... (please describe your preference here)"
+        },
+        "recommended": "A"
+      },
+      {
+        "group": "SCREENS & NAVIGATION",
+        "label": "What primary navigation pattern should the UI plan use?",
+        "option_a": {
+          "text": "A simple lobby-to-match-to-results flow with one screen focus at a time",
+          "label": "A"
+        },
+        "option_b": {
+          "text": "A richer shell with persistent sidebar navigation, settings drawers, and multiple parallel panels",
+          "label": "B"
+        },
+        "option_c": {
+          "text": null,
+          "label": "C",
+          "is_freetext": true,
+          "placeholder": "Something else... (please describe your preference here)"
+        },
+        "recommended": "A"
+      },
+      {
+        "group": "SCREENS & NAVIGATION",
+        "label": "How should the app behave on first launch before any room exists?",
+        "option_a": {
+          "text": "Show a landing lobby that asks for name and offers create/join actions immediately",
+          "label": "A"
+        },
+        "option_b": {
+          "text": "Show an intro/tutorial or brand splash first, then route into the lobby",
+          "label": "B"
+        },
+        "option_c": {
+          "text": null,
+          "label": "C",
+          "is_freetext": true,
+          "placeholder": "Something else... (please describe your preference here)"
+        },
+        "recommended": "A"
+      },
+      {
+        "group": "API & INTEGRATIONS",
+        "label": "What external dependency failure behavior should the build plan assume for the multiplayer server?",
+        "option_a": {
+          "text": "If the server is down or sleeping, the client shows a connecting/waking state and retries until it can rejoin or create a room",
+          "label": "A"
+        },
+        "option_b": {
+          "text": "If the server is down, the client immediately fails fast and asks the user to refresh later without retry logic",
+          "label": "B"
+        },
+        "option_c": {
+          "text": null,
+          "label": "C",
+          "is_freetext": true,
+          "placeholder": "Something else... (please describe your preference here)"
+        },
+        "recommended": "A"
+      },
+      {
+        "group": "QUALITY & OPERATIONS",
+        "label": "What is the preferred testing strategy for this MVP?",
+        "option_a": {
+          "text": "TDD where practical, with unit tests for deterministic game logic and integration/E2E coverage for multiplayer flows",
+          "label": "A"
+        },
+        "option_b": {
+          "text": "Test-after development with a smaller, targeted test suite focused only on the riskiest multiplayer behaviors",
+          "label": "B"
+        },
+        "option_c": {
+          "text": null,
+          "label": "C",
+          "is_freetext": true,
+          "placeholder": "Something else... (please describe your preference here)"
+        },
+        "recommended": "A"
+      },
+      {
+        "group": "INTERNATIONALISATION & NOTIFICATIONS",
+        "label": "Do you want any notifications system in v1?",
+        "option_a": {
+          "text": "No user notifications beyond in-app match status, round timer, and winner states",
+          "label": "A"
+        },
+        "option_b": {
+          "text": "Yes, include browser push or email notifications for invites, room readiness, or match reminders",
+          "label": "B"
+        },
+        "option_c": {
+          "text": null,
+          "label": "C",
+          "is_freetext": true,
+          "placeholder": "Something else... (please describe your preference here)"
+        },
+        "recommended": "A"
+      },
+      {
+        "group": "AI FEATURES",
+        "label": "Does v1 include any AI or LLM-powered features?",
+        "option_a": {
+          "text": "No AI features in v1; all gameplay and UI behavior is deterministic and rule-based",
+          "label": "A"
+        },
+        "option_b": {
+          "text": "Yes, add AI assistance such as onboarding help, balancing suggestions, or match summaries",
+          "label": "B"
+        },
+        "option_c": {
+          "text": null,
+          "label": "C",
+          "is_freetext": true,
+          "placeholder": "Something else... (please describe your preference here)"
+        },
+        "recommended": "A"
+      },
+      {
+        "group": "Tech Stack and Infrastructure",
+        "label": "Which technology stack should v1 use?",
+        "option_a": {
+          "text": "Rails with default SQLite, Hotwire, and Solid adapters",
+          "label": "A"
+        },
+        "option_b": {
+          "text": "Next.js with PostgreSQL when a separate React frontend is required",
+          "label": "B"
+        },
+        "option_c": {
+          "text": null,
+          "label": "C",
+          "is_freetext": true,
+          "placeholder": "Something else... (please describe your preference here)"
+        },
+        "recommended": "A"
+      }
+    ],
+    "answers": {
+      "0": "A reliable 2–4 player MVP where a match can be created, played to completion, and replayed to lobby with the hidden-movement loop working end to end",
+      "1": "Friends need a fair, low-friction party game that creates tension through incomplete information and quick rematches",
+      "2": "Keep the current exclusions as written, and also exclude spectator controls, match history, replays, and custom room settings",
+      "3": "Internal playtest / friends-only prototype with known rough edges acceptable if core gameplay is stable",
+      "4": "Authoritative server required for all matches; no offline or local-only gameplay mode",
+      "5": "Single monorepo with shared code, client, and server in one repo for coordinated versioning",
+      "6": "dark mode is the default and only option. no light mode.",
+      "7": "Basic accessibility, aiming for clear contrast, keyboard operability where feasible, and readable status feedback",
+      "8": "Use a clean, minimal competitive-game HUD with crisp status panels and restrained effects",
+      "9": "Only the live room state needed to rejoin the current match, with no long-term persistence after the session ends",
+      "10": "No additional real-time sync outside the match room; all live updates stay inside Colyseus room state and private messages",
+      "11": "Anonymous room-based identity using a chosen display name plus server-issued session token",
+      "12": "Host controls start only; all players can move, aim, and participate equally, while spectators can only watch",
+      "13": "A simple lobby-to-match-to-results flow with one screen focus at a time",
+      "14": "Show a landing lobby that asks for name and offers create/join actions immediately",
+      "15": "If the server is down or sleeping, the client shows a connecting/waking state and retries until it can rejoin or create a room",
+      "16": "TDD where practical, with unit tests for deterministic game logic and integration/E2E coverage for multiplayer flows",
+      "17": "No user notifications beyond in-app match status, round timer, and winner states",
+      "18": "No AI features in v1; all gameplay and UI behavior is deterministic and rule-based",
+      "19": "Phaser 3 + TypeScript + Vite + HTML/CSS frontend, Node.js + Colyseus authoritative server with shared TypeScript contracts, Vitest + Playwright testing, Git/GitHub + GitHub Actions CI/CD, GitHub Pages client hosting, and Render Free server hosting."
+    },
+    "preference_snapshot": {}
+  }
+}

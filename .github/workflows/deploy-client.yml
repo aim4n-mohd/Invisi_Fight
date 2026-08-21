@@ -1,0 +1,53 @@
+name: Deploy client to GitHub Pages
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.19.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build client
+        run: pnpm --filter @invisi-fight/client build
+        env:
+          VITE_PUBLIC_BASE_PATH: /Invisi_Fight/
+          VITE_GITHUB_PAGES_REPO_NAME: Invisi_Fight
+          VITE_SERVER_HTTP_URL: ${{ vars.VITE_SERVER_HTTP_URL }}
+          VITE_SERVER_WS_URL: ${{ vars.VITE_SERVER_WS_URL }}
+          VITE_BUILD_ENV: production
+          VITE_BUILD_COMMIT_SHA: ${{ github.sha }}
+          VITE_ENABLE_DEBUG_OVERLAY: 'false'
+          VITE_ENABLE_AUDIO: 'true'
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: client/dist
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

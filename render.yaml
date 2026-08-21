@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: invisi-fight-server
+    runtime: node
+    region: singapore
+    plan: free
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter @invisi-fight/shared build && pnpm --filter @invisi-fight/server build
+    startCommand: pnpm --filter @invisi-fight/server start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: NODE_ENV
+        value: production
+      - key: SERVER_HOST
+        value: 0.0.0.0
+      - key: CLIENT_PUBLIC_URL
+        value: https://aim4n-mohd.github.io/Invisi_Fight
+      - key: CORS_ORIGIN
+        value: https://aim4n-mohd.github.io
+      - key: MATCH_RECONNECT_GRACE_MS
+        value: 15000
+      - key: LOG_LEVEL
+        value: info
