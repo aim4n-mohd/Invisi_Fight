@@ -22,4 +22,8 @@ export class InputRateLimiter {
   clear(): void {
     this.#windows.clear();
   }
+
+  remove(playerId: string): void {
+    this.#windows.delete(playerId);
+  }
 }

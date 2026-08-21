@@ -1,3 +1,5 @@
+import { serverClock } from '../../network/serverClock.js';
+
 export function TimerDisplay(expiresAtServerMs: number | null): HTMLElement {
   const timer = document.createElement('div');
   timer.className = 'hud-stat';
@@ -8,7 +10,7 @@ export function TimerDisplay(expiresAtServerMs: number | null): HTMLElement {
   const value = document.createElement('strong');
   value.className = 'hud-stat__value';
   const update = () => {
-    const remainingMs = expiresAtServerMs ? Math.max(0, expiresAtServerMs - Date.now()) : 0;
+    const remainingMs = expiresAtServerMs ? Math.max(0, expiresAtServerMs - serverClock.now()) : 0;
     value.textContent = expiresAtServerMs ? `${(remainingMs / 1_000).toFixed(1)}s` : '—';
     value.dataset.warning = String(remainingMs <= 3_000 && remainingMs > 0);
   };

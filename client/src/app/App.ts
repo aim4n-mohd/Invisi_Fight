@@ -47,6 +47,9 @@ export class App {
     this.#router.navigate(ui.screen, roomCode);
     const shell = document.createElement('div');
     shell.className = 'app-shell';
+    if (ui.screen === 'match' || ui.screen === 'spectator') {
+      shell.classList.add('app-shell--game');
+    }
     const screen = SCREEN_FACTORY[ui.screen]();
     if (ui.statusMessage) screen.append(StatusBanner(ui.statusMessage));
     if (ui.errorMessage) screen.append(StatusBanner(ui.errorMessage, 'error'));

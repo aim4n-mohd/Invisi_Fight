@@ -6,6 +6,8 @@ import { roomClient } from '../../network/colyseusClient.js';
 import { matchViewStore } from '../../state/matchViewStore.js';
 import { privateSnapshotStore } from '../../state/privateSnapshotStore.js';
 import { sessionStore } from '../../state/sessionStore.js';
+import { serverClock } from '../../network/serverClock.js';
+import { KeyboardMovementController } from '../input/KeyboardMovementController.js';
 import { AimRenderSystem } from '../systems/AimRenderSystem.js';
 import { EffectsSystem } from '../systems/EffectsSystem.js';
 import { InterpolationSystem } from '../systems/InterpolationSystem.js';
@@ -18,7 +20,7 @@ export class ArenaScene extends Phaser.Scene {
   #aimSystem?: AimRenderSystem;
   #effectsSystem?: EffectsSystem;
   readonly #interpolation = new InterpolationSystem();
-  #keys?: Record<'W' | 'A' | 'S' | 'D', Phaser.Input.Keyboard.Key>;
+  #movement: KeyboardMovementController | null = null;
   #inputSequence = 0;
   #lastInputAtMs = 0;
   #aimAngleRad = 0;
@@ -44,18 +46,23 @@ export class ArenaScene extends Phaser.Scene {
     this.input.once('pointerdown', () => {
       if (this.sound.locked) void this.sound.unlock();
     });
-    this.#keys = this.input.keyboard?.addKeys('W,A,S,D') as Record<
-      'W' | 'A' | 'S' | 'D',
-      Phaser.Input.Keyboard.Key
-    >;
+    this.#movement = new KeyboardMovementController();
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.#movement?.destroy();
+      this.#movement = null;
+    });
   }
 
   update(_time: number, deltaMs: number): void {
     const match = matchViewStore.getState();
     const privateState = privateSnapshotStore.getState();
     const localPlayerId = sessionStore.getState().roomSession?.playerId;
-    if (privateState.playerState) this.#interpolation.setTarget(privateState.playerState.position);
-    const localPosition = this.#interpolation.update(deltaMs);
+    const localPlayer = match.players.find((player) => player.playerId === localPlayerId);
+    const canPlay = Boolean(localPlayer?.alive && localPlayer.role !== 'spectator');
+    if (canPlay && privateState.playerState) {
+      this.#interpolation.setTarget(privateState.playerState.position);
+    }
+    const localPosition = canPlay ? this.#interpolation.update(deltaMs) : null;
     const pointer = this.input.activePointer;
     if (localPosition) {
       this.#aimAngleRad = Math.atan2(
@@ -63,8 +70,13 @@ export class ArenaScene extends Phaser.Scene {
         pointer.worldX - localPosition.x,
       );
     }
-    this.#sendInputIfDue(match.phase);
-    const nowMs = Date.now();
+    this.#sendInputIfDue(match.phase, canPlay);
+    const nowMs = serverClock.now();
+    const gameFrame = this.game.canvas.parentElement;
+    if (gameFrame) {
+      if (localPosition) gameFrame.dataset.localPlayerX = localPosition.x.toFixed(2);
+      else delete gameFrame.dataset.localPlayerX;
+    }
     this.#renderSystem?.draw(match.phase, localPosition, localPlayerId, match.players);
     this.#aimSystem?.draw(match.phase, localPosition, this.#aimAngleRad, match.players);
     if (match.phase === 'planning') {
@@ -81,20 +93,19 @@ export class ArenaScene extends Phaser.Scene {
     privateSnapshotStore.getState().prune(nowMs);
   }
 
-  #sendInputIfDue(phase: string): void {
-    if (phase !== 'planning' || !this.#keys) return;
+  #sendInputIfDue(phase: string, canPlay: boolean): void {
+    if (phase !== 'planning' || !canPlay || !this.#movement) return;
     const nowMs = performance.now();
     if (nowMs - this.#lastInputAtMs < NETWORK_TICK_MS) return;
     this.#lastInputAtMs = nowMs;
-    const moveX = Number(this.#keys.D.isDown) - Number(this.#keys.A.isDown);
-    const moveY = Number(this.#keys.S.isDown) - Number(this.#keys.W.isDown);
+    const movement = this.#movement.movement();
     this.#inputSequence += 1;
     roomClient.sendInput({
-      moveX,
-      moveY,
+      moveX: movement.x,
+      moveY: movement.y,
       aimAngleRad: this.#aimAngleRad,
       sequence: this.#inputSequence,
-      clientTimeMs: Date.now(),
+      clientTimeMs: performance.now(),
     });
   }
 }
