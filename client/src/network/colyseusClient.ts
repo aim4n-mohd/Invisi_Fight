@@ -80,7 +80,9 @@ export class InvisiFightClient {
   }
 
   prepareForPageClose(): void {
+    if (this.#pageClosing) return;
     this.#pageClosing = true;
+    if (this.#room?.connection.isOpen) void this.#room.leave(false);
   }
 
   async createRoom(playerName: string): Promise<void> {
