@@ -13,6 +13,7 @@ import {
   type ShotResolutionEvent,
 } from '@invisi-fight/shared';
 import { CLIENT_CONFIG } from '../config/clientConfig.js';
+import { reconnectWithReservationRetry } from './reconnectPolicy.js';
 import { ServerWakeError, ServerWakeService } from './ServerWakeService.js';
 import { connectionStore } from '../state/connectionStore.js';
 import { matchViewStore } from '../state/matchViewStore.js';
@@ -104,8 +105,9 @@ export class InvisiFightClient {
     uiStore.getState().setBusy(true, 'Reconnecting to room…');
     try {
       await this.#waitForServer('reconnecting');
-      await new Promise((resolve) => window.setTimeout(resolve, 75));
-      const room = await this.#client.reconnect<RoomWireState>(reconnectToken);
+      const room = await reconnectWithReservationRetry(() =>
+        this.#client.reconnect<RoomWireState>(reconnectToken),
+      );
       this.#attachRoom(room);
     } catch (error) {
       sessionStore.getState().clearRoomSession();

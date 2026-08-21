@@ -4,14 +4,14 @@ test('two players can create, join, and start a private match', async ({ context
   test.setTimeout(90_000);
   const guest = await context.newPage();
 
-  await host.goto('/');
+  await host.goto('./');
   await host.getByLabel('Display name').fill('Host');
   await host.getByRole('button', { name: 'Create room' }).click();
   await expect(host.getByRole('heading', { name: 'Waiting for the fight' })).toBeVisible();
   const roomHeading = await host.getByRole('heading', { name: /^Room [A-Z2-9]{6}$/ }).innerText();
   const roomCode = roomHeading.replace('Room ', '');
 
-  await guest.goto('/');
+  await guest.goto('./');
   await guest.getByLabel('Display name').fill('Guest');
   await guest.getByLabel('Room code').fill(roomCode);
   await guest.getByRole('button', { name: 'Join room' }).click();
@@ -46,7 +46,7 @@ test('two players can create, join, and start a private match', async ({ context
 });
 
 test('keyboard users can create a room and receive focus on the next screen', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('./');
   await expect(
     page.getByRole('heading', { name: 'Move unseen. Scan carefully. Commit the shot.' }),
   ).toBeFocused();
@@ -60,9 +60,26 @@ test('keyboard users can create a room and receive focus on the next screen', as
   await expect(page.getByRole('heading', { name: 'Waiting for the fight' })).toBeFocused();
 });
 
+test('a room host reconnects after refreshing the room URL', async ({ page }) => {
+  test.setTimeout(30_000);
+  await page.goto('./');
+  await page.getByLabel('Display name').fill('ReconnectHost');
+  await page.getByRole('button', { name: 'Create room' }).click();
+
+  const roomHeading = page.getByRole('heading', { name: /^Room [A-Z2-9]{6}$/ });
+  const expectedRoomHeading = await roomHeading.innerText();
+  await page.reload();
+
+  await expect(page.getByRole('heading', { name: 'Waiting for the fight' })).toBeVisible({
+    timeout: 20_000,
+  });
+  await expect(page.getByRole('heading', { name: expectedRoomHeading })).toBeVisible();
+  await expect(page.getByText('ReconnectHost')).toBeVisible();
+});
+
 test('landing actions stack without horizontal overflow on a narrow viewport', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
-  await page.goto('/');
+  await page.goto('./');
   const panels = page.locator('.landing-grid > .panel');
   const first = await panels.nth(0).boundingBox();
   const second = await panels.nth(1).boundingBox();
