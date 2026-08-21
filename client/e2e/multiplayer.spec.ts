@@ -40,6 +40,11 @@ test('two players can create, join, and start a private match', async ({ context
   expect(canvasBounds).not.toBeNull();
   expect(canvasBounds!.y + canvasBounds!.height).toBeLessThanOrEqual(884);
 
+  await expect(host.locator('#game-frame')).toHaveAttribute(
+    'data-local-player-x',
+    /^\d+(?:\.\d+)?$/,
+    { timeout: 10_000 },
+  );
   const startingX = await localPlayerX(host);
   await host.keyboard.down('d');
   await host.waitForTimeout(600);
