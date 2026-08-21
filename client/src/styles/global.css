@@ -46,10 +46,27 @@ input:focus-visible,
   align-content: center;
 }
 
+.app-shell--game {
+  padding-block: 16px;
+}
+
 .screen {
   min-width: 0;
   display: grid;
   gap: var(--space-6);
+}
+
+.screen--game {
+  gap: clamp(8px, 1.5vh, 16px);
+}
+
+.screen--game .screen__title {
+  font-size: clamp(40px, 6.5vh, 64px);
+}
+
+.screen--game .screen__lede {
+  font-size: 16px;
+  line-height: 1.35;
 }
 
 .screen__eyebrow {
@@ -148,6 +165,10 @@ input:focus-visible,
   grid-template-columns: auto auto auto minmax(260px, 1fr);
   gap: var(--space-3);
   align-items: stretch;
+}
+
+.match-hud--spectator {
+  grid-template-columns: auto auto minmax(260px, 1fr);
 }
 
 .phase-label,
@@ -325,6 +346,13 @@ input:focus-visible,
   box-shadow: var(--shadow-panel);
 }
 
+.screen--game .game-frame {
+  width: auto;
+  height: min(calc(100dvh - 270px), calc(56.25vw - 27px), 720px);
+  min-height: 300px;
+  justify-self: center;
+}
+
 .game-frame canvas {
   width: 100% !important;
   height: 100% !important;
@@ -350,6 +378,12 @@ input:focus-visible,
 
   .screen__title {
     font-size: clamp(36px, 12vw, 56px);
+  }
+
+  .screen--game .game-frame {
+    width: 100%;
+    height: auto;
+    min-height: 0;
   }
 }
 

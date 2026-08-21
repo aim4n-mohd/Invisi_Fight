@@ -20,6 +20,7 @@ import { matchViewStore } from '../state/matchViewStore.js';
 import { privateSnapshotStore } from '../state/privateSnapshotStore.js';
 import { sessionStore } from '../state/sessionStore.js';
 import { uiStore } from '../state/uiStore.js';
+import { serverClock } from './serverClock.js';
 
 interface PublicPlayerWireState {
   playerId: string;
@@ -188,6 +189,7 @@ export class InvisiFightClient {
 
     room.onStateChange((state) => this.#applyState(state));
     room.onMessage<SessionReadyEvent>('session:ready', (event) => {
+      serverClock.synchronize(event.serverTimeMs);
       const reconnectToken = room.reconnectionToken;
       sessionStore.getState().setRoomSession({
         playerId: event.playerId,

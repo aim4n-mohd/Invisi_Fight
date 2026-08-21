@@ -25,4 +25,15 @@ describe('network boundary contracts', () => {
       }),
     ).toThrow();
   });
+
+  it('normalizes MessagePack bigint timestamps from Colyseus input messages', () => {
+    const parsed = playerInputSchema.parse({
+      moveX: 1,
+      moveY: 0,
+      aimAngleRad: 0,
+      sequence: 1,
+      clientTimeMs: 1_787_334_908_575n,
+    });
+    expect(parsed.clientTimeMs).toBe(1_787_334_908_575);
+  });
 });

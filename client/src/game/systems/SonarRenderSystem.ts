@@ -2,10 +2,21 @@ import type Phaser from 'phaser';
 import {
   GAMEPLAY_CONFIG,
   SONAR_WEDGE_RADIANS,
+  isPointInsideWedge,
   type PrivateSonarSnapshotEvent,
   type Vector2,
 } from '@invisi-fight/shared';
 import { PHASER_THEME } from '../../ui/theme.js';
+
+const SONAR_RADIUS = Math.hypot(GAMEPLAY_CONFIG.arenaWidth, GAMEPLAY_CONFIG.arenaHeight);
+
+export function isDetectionInsideSweep(
+  origin: Vector2,
+  detectionPosition: Vector2,
+  angleRad: number,
+): boolean {
+  return isPointInsideWedge(origin, detectionPosition, angleRad, SONAR_WEDGE_RADIANS, SONAR_RADIUS);
+}
 
 export class SonarRenderSystem {
   readonly #graphics: Phaser.GameObjects.Graphics;
@@ -22,7 +33,7 @@ export class SonarRenderSystem {
   ): void {
     this.#graphics.clear();
     if (!origin) return;
-    const radius = Math.hypot(GAMEPLAY_CONFIG.arenaWidth, GAMEPLAY_CONFIG.arenaHeight);
+    const radius = SONAR_RADIUS;
     const start = angleRad - SONAR_WEDGE_RADIANS / 2;
     const end = angleRad + SONAR_WEDGE_RADIANS / 2;
     this.#graphics.fillStyle(PHASER_THEME.sonar, 0.12);
@@ -37,6 +48,7 @@ export class SonarRenderSystem {
     this.#graphics.strokePath();
 
     detections.forEach((detection) => {
+      if (!isDetectionInsideSweep(origin, detection.position, angleRad)) return;
       const lifetime = Math.max(1, detection.expiresAtServerMs - detection.detectedAtServerMs);
       const alpha = Math.max(0, Math.min(1, (detection.expiresAtServerMs - nowMs) / lifetime));
       if (alpha <= 0) return;

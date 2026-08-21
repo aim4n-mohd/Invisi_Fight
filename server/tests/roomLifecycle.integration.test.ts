@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Client as ColyseusClient, type Room } from 'colyseus.js';
 import type { Server } from '@colyseus/core';
 import type { Server as HttpServer } from 'node:http';
-import type { SessionReadyEvent } from '@invisi-fight/shared';
+import type { PrivatePlayerStateEvent, SessionReadyEvent } from '@invisi-fight/shared';
 import { assembleServer } from '../src/app.js';
 import { readEnvironment } from '../src/config/env.js';
 
@@ -42,7 +42,12 @@ describe('InvisiFightRoom lifecycle', () => {
 
   beforeAll(async () => {
     const assembled = assembleServer(
-      readEnvironment({ NODE_ENV: 'test', SERVER_HOST: '127.0.0.1', ENABLE_DEV_MODE: 'false' }),
+      readEnvironment({
+        NODE_ENV: 'test',
+        SERVER_HOST: '127.0.0.1',
+        ENABLE_DEV_MODE: 'false',
+        MATCH_RECONNECT_GRACE_MS: '100',
+      }),
     );
     gameServer = assembled.gameServer;
     httpServer = assembled.httpServer;
@@ -116,4 +121,112 @@ describe('InvisiFightRoom lifecycle', () => {
     await waitFor(() => !restoredRoom.connection.isOpen);
     expect(replacementRoom.state.players.get(replacementSession.playerId)?.connected).toBe(true);
   }, 10_000);
+
+  it('removes a player who deliberately leaves the lobby', async () => {
+    const hostRoom = await client.create<LifecycleWireState>('invisi_fight', {
+      playerName: 'LobbyHost',
+    });
+    rooms.push(hostRoom);
+    const hostSession = await sessionFor(hostRoom);
+    await waitFor(() => Boolean(hostRoom.state.players.get(hostSession.playerId)));
+
+    const guestRoom = await client.join<LifecycleWireState>('invisi_fight', {
+      playerName: 'LobbyGuest',
+      roomCode: hostRoom.state.roomCode,
+    });
+    rooms.push(guestRoom);
+    const guestSession = await sessionFor(guestRoom);
+    await waitFor(() => Boolean(hostRoom.state.players.get(guestSession.playerId)));
+
+    await guestRoom.leave(true);
+    await waitFor(() => !hostRoom.state.players.get(guestSession.playerId));
+    expect(hostRoom.state.players.get(guestSession.playerId)).toBeUndefined();
+  });
+
+  it('ends an active match when a departed player leaves one fighter standing', async () => {
+    const hostRoom = await client.create<LifecycleWireState>('invisi_fight', {
+      playerName: 'WinningHost',
+    });
+    rooms.push(hostRoom);
+    const hostSession = await sessionFor(hostRoom);
+
+    const guestRoom = await client.join<LifecycleWireState>('invisi_fight', {
+      playerName: 'DepartingGuest',
+      roomCode: hostRoom.state.roomCode,
+    });
+    rooms.push(guestRoom);
+    const guestSession = await sessionFor(guestRoom);
+    hostRoom.send('input:start', { sessionToken: hostSession.sessionToken });
+    await waitFor(() => hostRoom.state.phase === 'planning');
+
+    await guestRoom.leave(false);
+    await waitFor(() => hostRoom.state.phase === 'results');
+    expect(hostRoom.state.players.get(guestSession.playerId)).toBeUndefined();
+  });
+
+  it('applies a valid movement message to the authoritative private position', async () => {
+    const hostRoom = await client.create<LifecycleWireState>('invisi_fight', {
+      playerName: 'MovingHost',
+    });
+    rooms.push(hostRoom);
+    const hostSession = await sessionFor(hostRoom);
+    let privateState: PrivatePlayerStateEvent | null = null;
+    hostRoom.onMessage<PrivatePlayerStateEvent>('private:state', (event) => {
+      privateState = event;
+    });
+
+    const guestRoom = await client.join<LifecycleWireState>('invisi_fight', {
+      playerName: 'StillGuest',
+      roomCode: hostRoom.state.roomCode,
+    });
+    rooms.push(guestRoom);
+    await sessionFor(guestRoom);
+    guestRoom.onMessage('private:state', () => undefined);
+    guestRoom.onMessage('private:sonar', () => undefined);
+    hostRoom.send('input:start', { sessionToken: hostSession.sessionToken });
+    await waitFor(() => hostRoom.state.phase === 'planning');
+    await waitFor(() => privateState !== null);
+    const startingX = (privateState as PrivatePlayerStateEvent).position.x;
+
+    hostRoom.send('input:player', {
+      moveX: 1,
+      moveY: 0,
+      aimAngleRad: 0,
+      sequence: 1,
+      clientTimeMs: Date.now(),
+    });
+    await waitFor(
+      () =>
+        privateState !== null &&
+        (privateState as PrivatePlayerStateEvent).sequence === 1 &&
+        (privateState as PrivatePlayerStateEvent).position.x > startingX,
+    );
+  });
+
+  it('keeps a player restored by signed-session fallback after the transport grace expires', async () => {
+    const hostRoom = await client.create<LifecycleWireState>('invisi_fight', {
+      playerName: 'FallbackHost',
+    });
+    rooms.push(hostRoom);
+    await sessionFor(hostRoom);
+
+    const guestRoom = await client.join<LifecycleWireState>('invisi_fight', {
+      playerName: 'FallbackGuest',
+      roomCode: hostRoom.state.roomCode,
+    });
+    rooms.push(guestRoom);
+    const guestSession = await sessionFor(guestRoom);
+    await guestRoom.leave(false);
+
+    const replacementRoom = await client.joinById<LifecycleWireState>(guestSession.roomId, {
+      playerName: 'FallbackGuest',
+      sessionToken: guestSession.sessionToken,
+    });
+    rooms.push(replacementRoom);
+    const replacementSession = await sessionFor(replacementRoom);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    expect(replacementSession.playerId).toBe(guestSession.playerId);
+    expect(replacementRoom.state.players.get(guestSession.playerId)?.connected).toBe(true);
+  });
 });

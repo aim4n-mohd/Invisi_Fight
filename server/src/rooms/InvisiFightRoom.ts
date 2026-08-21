@@ -125,8 +125,11 @@ export class InvisiFightRoom extends Room<InvisiFightRoomState> {
     publicPlayer.role = role;
     publicPlayer.isHost = role === 'host';
     publicPlayer.hearts = GAMEPLAY_CONFIG.startingHearts;
+    publicPlayer.alive = role !== 'spectator';
     this.state.players.set(playerId, publicPlayer);
-    this.#combatants.set(playerId, this.#createCombatant(playerId, this.state.players.size - 1));
+    if (role !== 'spectator') {
+      this.#combatants.set(playerId, this.#createCombatant(playerId, this.state.players.size - 1));
+    }
     if (publicPlayer.isHost) this.state.hostPlayerId = playerId;
 
     const sessionToken = this.#sessions.issue({
@@ -154,10 +157,20 @@ export class InvisiFightRoom extends Room<InvisiFightRoomState> {
     const runtime = this.#runtimeByClient.get(client.sessionId);
     if (!runtime) return;
     const player = this.state.players.get(runtime.playerId);
-    if (player) player.connected = false;
+    if (player) {
+      player.connected = false;
+      const combatant = this.#combatants.get(runtime.playerId);
+      if (combatant) {
+        combatant.velocity.x = 0;
+        combatant.velocity.y = 0;
+      }
+    }
     this.state.revision += 1;
 
-    if (consented) return;
+    if (consented) {
+      this.#removePlayer(runtime.playerId);
+      return;
+    }
     try {
       const restoredClient = await this.allowReconnection(client, this.#reconnectGraceMs / 1_000);
       this.#runtimeByClient.delete(client.sessionId);
@@ -173,11 +186,18 @@ export class InvisiFightRoom extends Room<InvisiFightRoomState> {
         playerId: runtime.playerId,
       });
     } catch {
-      this.#audit.write('warn', {
-        eventName: 'reconnect_expired',
-        roomId: this.roomId,
-        playerId: runtime.playerId,
-      });
+      const hasReplacement = Array.from(this.#runtimeByClient.values()).some(
+        (entry) =>
+          entry.playerId === runtime.playerId && entry.clientSessionId !== runtime.clientSessionId,
+      );
+      if (!hasReplacement) {
+        this.#removePlayer(runtime.playerId);
+        this.#audit.write('warn', {
+          eventName: 'reconnect_expired',
+          roomId: this.roomId,
+          playerId: runtime.playerId,
+        });
+      }
     }
   }
 
@@ -240,28 +260,7 @@ export class InvisiFightRoom extends Room<InvisiFightRoomState> {
       );
       return;
     }
-    this.state.phase = 'lobby';
-    this.state.phaseStartedAtServerMs = Date.now();
-    this.state.phaseEndsAtServerMs = 0;
-    this.state.roundNumber = 0;
-    this.state.activeShooterId = '';
-    this.state.winnerPlayerId = '';
-    this.state.firingOrder.clear();
-    for (const player of this.state.players.values()) {
-      player.hearts = GAMEPLAY_CONFIG.startingHearts;
-      player.alive = true;
-      player.role = player.isHost ? 'host' : 'player';
-      player.revealedX = -1;
-      player.revealedY = -1;
-      const combatant = this.#combatants.get(player.playerId);
-      if (combatant) {
-        combatant.hearts = GAMEPLAY_CONFIG.startingHearts;
-        combatant.alive = true;
-        combatant.aimAngleRad = 0;
-        combatant.lockedAimAngleRad = 0;
-      }
-    }
-    this.state.revision += 1;
+    this.#resetToLobby();
   }
 
   #createCombatant(playerId: string, index: number): Combatant {
@@ -421,6 +420,7 @@ export class InvisiFightRoom extends Room<InvisiFightRoomState> {
   }
 
   #resolveShotAt(index: number): void {
+    if (this.state.phase !== 'resolution') return;
     const shooterId = this.state.firingOrder[index];
     if (!shooterId) {
       this.#finishResolution();
@@ -459,6 +459,7 @@ export class InvisiFightRoom extends Room<InvisiFightRoomState> {
   }
 
   #finishResolution(): void {
+    if (this.state.phase !== 'resolution') return;
     const living = this.#livingCombatants();
     if (living.length === 1) this.#declareWinner(living[0]!.playerId);
     else this.#startPlanning(false);
@@ -512,6 +513,80 @@ export class InvisiFightRoom extends Room<InvisiFightRoomState> {
         .find((client) => client.sessionId === clientSessionId)
         ?.leave(4000, 'Session replaced.');
     }
+  }
+
+  #removePlayer(playerId: string): void {
+    const departing = this.state.players.get(playerId);
+    if (!departing) return;
+    for (const [clientSessionId, runtime] of this.#runtimeByClient) {
+      if (runtime.playerId !== playerId) continue;
+      this.#sessions.revoke(runtime.sessionToken);
+      this.#runtimeByClient.delete(clientSessionId);
+    }
+    this.state.players.delete(playerId);
+    this.#combatants.delete(playerId);
+    this.#inputRateLimiter.remove(playerId);
+    this.#replaceFiringOrder(
+      Array.from(this.state.firingOrder).filter(
+        (entry): entry is string => Boolean(entry) && entry !== playerId,
+      ),
+    );
+    if (this.state.activeShooterId === playerId) this.state.activeShooterId = '';
+    if (this.state.winnerPlayerId === playerId) this.state.winnerPlayerId = '';
+    this.#assignHost();
+
+    if (this.state.phase === 'planning' || this.state.phase === 'resolution') {
+      const living = this.#livingCombatants();
+      if (living.length === 1) this.#declareWinner(living[0]!.playerId);
+      else if (living.length === 0) this.#resetToLobby();
+    } else if (this.state.phase === 'results' && !this.state.winnerPlayerId) {
+      this.#resetToLobby();
+    } else {
+      this.state.revision += 1;
+    }
+  }
+
+  #assignHost(): void {
+    const currentHost = this.state.players.get(this.state.hostPlayerId);
+    if (currentHost?.connected) return;
+    for (const player of this.state.players.values()) {
+      player.isHost = false;
+      if (player.role === 'host') player.role = 'player';
+    }
+    const nextHost = Array.from(this.state.players.values()).find(
+      (player) => player.connected && player.role !== 'spectator',
+    );
+    this.state.hostPlayerId = nextHost?.playerId ?? '';
+    if (nextHost) {
+      nextHost.isHost = true;
+      nextHost.role = 'host';
+    }
+  }
+
+  #resetToLobby(): void {
+    this.state.phase = 'lobby';
+    this.state.phaseStartedAtServerMs = Date.now();
+    this.state.phaseEndsAtServerMs = 0;
+    this.state.roundNumber = 0;
+    this.state.activeShooterId = '';
+    this.state.winnerPlayerId = '';
+    this.state.firingOrder.clear();
+    this.#combatants.clear();
+    const players = Array.from(this.state.players.values());
+    players.forEach((player, index) => {
+      player.hearts = GAMEPLAY_CONFIG.startingHearts;
+      player.alive = true;
+      player.isHost = false;
+      player.role = 'player';
+      player.revealedX = -1;
+      player.revealedY = -1;
+      player.lockedAimAngleRad = 0;
+      this.#combatants.set(player.playerId, this.#createCombatant(player.playerId, index));
+    });
+    this.state.hostPlayerId = '';
+    this.#assignHost();
+    this.#sonar.reset();
+    this.state.revision += 1;
   }
 
   #sendError(client: Client, error: unknown): void {

@@ -107,3 +107,20 @@ Live targets:
 - The production client falls back to the `invisi-fight-server` Render blueprint URL; GitHub repository variables can override it when a different service name is used.
 - Render is configured with `autoDeployTrigger: commit`; the initial post-Blueprint update was manually deployed after confirming the service was still on its first build.
 - No accounts, database, ads, payments, analytics, chat, bots, or offline mode are being added.
+
+## Post-launch gameplay fixes — 2026-08-21
+
+- [x] WASD input now survives the Colyseus wire boundary. Large MessagePack timestamps are normalized safely, while the client sends monotonic input time.
+- [x] Spectators mount the same read-only Phaser arena and can watch public resolution reveals without receiving controls or private sonar data.
+- [x] Players are removed after a deliberate leave or an expired reconnect grace period. Active two-player matches declare the remaining fighter as winner, stale firing-order entries are removed, and a departed host is reassigned when possible.
+- [x] The match canvas fits a 1904×884 viewport without clipping while preserving its 16:9 aspect ratio and mobile behavior.
+- [x] Client timer and sonar rendering use server-aligned time, and detected silhouettes render only while the visible sonar wedge covers their fixed snapshot.
+
+Verification:
+
+```powershell
+pnpm.cmd run ci
+pnpm.cmd run test:e2e
+```
+
+The CI script passes with 50 Vitest checks across 21 files. Playwright passes 12 multiplayer scenarios across Chromium, Firefox, and WebKit, including held-WASD movement, spectator arena rendering, the 1904×884 viewport, full match/replay, refresh recovery, keyboard focus, and narrow-layout coverage.

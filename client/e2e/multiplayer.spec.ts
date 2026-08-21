@@ -1,8 +1,16 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
+
+async function localPlayerX(page: Page): Promise<number> {
+  const value = await page.locator('#game-frame').getAttribute('data-local-player-x');
+  if (!value) throw new Error('Local player state was not rendered.');
+  return Number(value);
+}
 
 test('two players can create, join, and start a private match', async ({ context, page: host }) => {
-  test.setTimeout(90_000);
+  test.setTimeout(120_000);
+  await host.setViewportSize({ width: 1904, height: 884 });
   const guest = await context.newPage();
+  await guest.setViewportSize({ width: 1904, height: 884 });
 
   await host.goto('./');
   await host.getByLabel('Display name').fill('Host');
@@ -27,6 +35,24 @@ test('two players can create, join, and start a private match', async ({ context
     expect(host.locator('canvas')).toBeVisible({ timeout: 20_000 }),
     expect(guest.locator('canvas')).toBeVisible({ timeout: 20_000 }),
   ]);
+
+  const canvasBounds = await host.locator('canvas').boundingBox();
+  expect(canvasBounds).not.toBeNull();
+  expect(canvasBounds!.y + canvasBounds!.height).toBeLessThanOrEqual(884);
+
+  const startingX = await localPlayerX(host);
+  await host.keyboard.down('d');
+  await host.waitForTimeout(600);
+  await host.keyboard.up('d');
+  await expect.poll(() => localPlayerX(host)).toBeGreaterThan(startingX + 40);
+
+  const spectator = await context.newPage();
+  await spectator.goto('./');
+  await spectator.getByLabel('Display name').fill('Watcher');
+  await spectator.getByLabel('Room code').fill(roomCode);
+  await spectator.getByRole('button', { name: 'Join room' }).click();
+  await expect(spectator.getByRole('heading', { name: 'You are spectating' })).toBeVisible();
+  await expect(spectator.locator('canvas')).toBeVisible({ timeout: 20_000 });
 
   const hostCanvas = await host.locator('canvas').boundingBox();
   const guestCanvas = await guest.locator('canvas').boundingBox();

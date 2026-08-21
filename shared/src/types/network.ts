@@ -28,7 +28,10 @@ export const playerInputSchema = z.object({
   moveY: z.number().min(-1).max(1),
   aimAngleRad: z.number().finite(),
   sequence: z.number().int().nonnegative(),
-  clientTimeMs: z.number().finite(),
+  clientTimeMs: z
+    .union([z.number(), z.bigint()])
+    .transform((value) => Number(value))
+    .pipe(z.number().finite().nonnegative()),
 });
 
 export interface SessionReadyEvent {
