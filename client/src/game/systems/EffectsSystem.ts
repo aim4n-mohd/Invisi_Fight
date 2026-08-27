@@ -1,5 +1,5 @@
 import type Phaser from 'phaser';
-import type { ShotResolutionEvent } from '@invisi-fight/shared';
+import { GAMEPLAY_CONFIG, type ShotResolutionEvent } from '@invisi-fight/shared';
 import { PHASER_THEME } from '../../ui/theme.js';
 
 export class EffectsSystem {
@@ -24,8 +24,8 @@ export class EffectsSystem {
       if (this.#audioEnabled) this.#scene.sound.play('gunshot', { volume: 0.68 });
     }
     const age = nowMs - this.#shownAtMs;
-    if (age > 320) return;
-    const alpha = 1 - age / 320;
+    if (age > GAMEPLAY_CONFIG.shotResultHoldMs) return;
+    const alpha = 1 - age / GAMEPLAY_CONFIG.shotResultHoldMs;
     this.#graphics.lineStyle(4, PHASER_THEME.shotLine, alpha);
     this.#graphics.lineBetween(event.origin.x, event.origin.y, event.end.x, event.end.y);
     this.#graphics.fillStyle(0xffea8a, alpha);

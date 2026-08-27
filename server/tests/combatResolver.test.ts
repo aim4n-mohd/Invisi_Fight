@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { GAMEPLAY_CONFIG } from '@invisi-fight/shared';
 import { CombatResolver, type Combatant } from '../src/services/CombatResolver.js';
 
 function combatant(playerId: string, x: number, y: number, aim = 0): Combatant {
@@ -7,7 +8,10 @@ function combatant(playerId: string, x: number, y: number, aim = 0): Combatant {
     position: { x, y },
     aimAngleRad: aim,
     lockedAimAngleRad: aim,
-    hearts: 3,
+    lockSource: null,
+    lockSequence: -1,
+    lockedAtServerMs: 0,
+    hearts: GAMEPLAY_CONFIG.startingHearts,
     alive: true,
     velocity: { x: 0, y: 0 },
     inputSequence: 0,
@@ -40,8 +44,19 @@ describe('CombatResolver', () => {
     ];
     const event = resolver.resolveShot(players[0]!, players, 1, 5_000);
     expect(event.targetId).toBe('near');
-    expect(players[1]!.hearts).toBe(2);
-    expect(players[2]!.hearts).toBe(3);
+    expect(players[1]!.hearts).toBe(1);
+    expect(players[2]!.hearts).toBe(GAMEPLAY_CONFIG.startingHearts);
+  });
+
+  it('should count a visually close shot inside the larger shot hit radius', () => {
+    const resolver = new CombatResolver();
+    const shooter = combatant('shooter', 100, 100);
+    const target = combatant('target', 220, 121);
+
+    const event = resolver.resolveShot(shooter, [shooter, target], 1, 5_000);
+
+    expect(event.targetId).toBe('target');
+    expect(target.hearts).toBe(1);
   });
 
   it('should cancel a locked shot when the shooter died before their turn', () => {

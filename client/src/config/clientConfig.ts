@@ -7,6 +7,7 @@ const clientEnvironmentSchema = z.object({
   buildCommitSha: z.string(),
   debugOverlay: z.boolean(),
   audioEnabled: z.boolean(),
+  arenaRenderer: z.enum(['three', 'phaser']),
 });
 
 function booleanValue(value: string | undefined, fallback: boolean): boolean {
@@ -36,4 +37,5 @@ export const CLIENT_CONFIG = clientEnvironmentSchema.parse({
   buildCommitSha: import.meta.env.VITE_BUILD_COMMIT_SHA ?? 'local-dev',
   debugOverlay: booleanValue(import.meta.env.VITE_ENABLE_DEBUG_OVERLAY, true),
   audioEnabled: booleanValue(import.meta.env.VITE_ENABLE_AUDIO, true),
+  arenaRenderer: import.meta.env.VITE_ARENA_RENDERER ?? 'three',
 });

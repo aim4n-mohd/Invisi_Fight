@@ -2,6 +2,7 @@ import {
   GAMEPLAY_CONFIG,
   firstRayHit,
   type ShotResolutionEvent,
+  type ShotLockSource,
   type Vector2,
 } from '@invisi-fight/shared';
 import { nanoid } from 'nanoid';
@@ -11,6 +12,9 @@ export interface Combatant {
   position: Vector2;
   aimAngleRad: number;
   lockedAimAngleRad: number;
+  lockSource: ShotLockSource | null;
+  lockSequence: number;
+  lockedAtServerMs: number;
   hearts: number;
   alive: boolean;
   velocity: Vector2;
@@ -114,7 +118,7 @@ export class CombatResolver {
       combatants.map((combatant) => ({
         id: combatant.playerId,
         center: combatant.position,
-        radius: GAMEPLAY_CONFIG.playerRadius,
+        radius: GAMEPLAY_CONFIG.shotHitRadiusPx,
         alive: combatant.alive,
       })),
       shooter.playerId,

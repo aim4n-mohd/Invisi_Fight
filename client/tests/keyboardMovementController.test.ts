@@ -23,4 +23,16 @@ describe('KeyboardMovementController', () => {
     window.dispatchEvent(new Event('blur'));
     expect(controller.movement()).toEqual({ x: 0, y: 0 });
   });
+
+  it('queues one sonar trigger per Space press', () => {
+    controller = new KeyboardMovementController(window);
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space' }));
+
+    expect(controller.consumeSonarTrigger()).toBe(true);
+    expect(controller.consumeSonarTrigger()).toBe(false);
+
+    window.dispatchEvent(new KeyboardEvent('keyup', { code: 'Space' }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space' }));
+    expect(controller.consumeSonarTrigger()).toBe(true);
+  });
 });

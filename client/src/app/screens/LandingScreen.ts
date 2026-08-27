@@ -7,24 +7,25 @@ import { uiStore } from '../../state/uiStore.js';
 import { screenFrame } from './screenFrame.js';
 
 export function LandingScreen(): HTMLElement {
+  delete document.documentElement.dataset.recapSeen;
   const screen = screenFrame(
-    'Private room multiplayer',
-    'Move unseen. Scan carefully. Commit the shot.',
-    'Create a room for friends or join with a code. During planning, only your private sonar can expose an opponent.',
+    'Online tactical duel',
+    'INVISI FIGHT',
+    'Move unseen. Ping to reveal your rival, then aim and fire.',
   );
-  const panelGrid = document.createElement('div');
-  panelGrid.className = 'landing-grid';
+  screen.classList.add('screen--landing');
   let playerName = sessionStore.getState().playerName;
   let roomCode = '';
 
-  const identityPanel = document.createElement('section');
-  identityPanel.className = 'panel stack identity-panel';
-  const identityTitle = document.createElement('h2');
-  identityTitle.textContent = 'Choose your fighter name';
-  identityPanel.append(
-    identityTitle,
+  const consolePanel = document.createElement('section');
+  consolePanel.className = 'landing-console';
+  consolePanel.setAttribute('aria-label', 'Enter a private room');
+
+  const createPanel = document.createElement('form');
+  createPanel.className = 'landing-console__create';
+  createPanel.append(
     Input({
-      label: 'Display name',
+      label: 'Fighter name',
       name: 'playerName',
       value: playerName,
       placeholder: 'Your name',
@@ -33,18 +34,6 @@ export function LandingScreen(): HTMLElement {
       onInput: (value) => {
         playerName = value;
       },
-    }),
-  );
-
-  const createPanel = document.createElement('form');
-  createPanel.className = 'panel stack';
-  const createTitle = document.createElement('h2');
-  createTitle.textContent = 'Create a room';
-  createPanel.append(
-    createTitle,
-    Object.assign(document.createElement('p'), {
-      className: 'muted',
-      textContent: 'Start a fresh private room and share its six-character code with friends.',
     }),
     Button({ label: 'Create room', variant: 'primary', type: 'submit' }),
   );
@@ -60,11 +49,8 @@ export function LandingScreen(): HTMLElement {
   });
 
   const joinPanel = document.createElement('form');
-  joinPanel.className = 'panel stack';
-  const joinTitle = document.createElement('h2');
-  joinTitle.textContent = 'Join friends';
+  joinPanel.className = 'landing-console__join';
   joinPanel.append(
-    joinTitle,
     Input({
       label: 'Room code',
       name: 'roomCode',
@@ -95,7 +81,10 @@ export function LandingScreen(): HTMLElement {
     void roomClient.joinRoom(parsedName.data, parsedCode.data).catch(() => undefined);
   });
 
-  panelGrid.append(createPanel, joinPanel);
-  screen.append(identityPanel, panelGrid);
+  const divider = document.createElement('div');
+  divider.className = 'landing-console__divider';
+  divider.textContent = 'or join a room';
+  consolePanel.append(createPanel, divider, joinPanel);
+  screen.append(consolePanel);
   return screen;
 }

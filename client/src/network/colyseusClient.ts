@@ -7,13 +7,19 @@ import {
   type PlayerInputMessage,
   type PlayerRole,
   type PrivatePlayerStateEvent,
-  type PrivateSonarSnapshotEvent,
   type PublicPlayerState,
+  type RecapOutcome,
   type SessionReadyEvent,
   type ShotResolutionEvent,
 } from '@invisi-fight/shared';
 import { CLIENT_CONFIG } from '../config/clientConfig.js';
 import { reconnectWithSessionFallback } from './reconnectPolicy.js';
+import {
+  routePrivateSonarSnapshot,
+  routePublicSonarEmission,
+  routeShotLockStatus,
+  routeSonarStatus,
+} from './sonarEventRouter.js';
 import { ServerWakeError, ServerWakeService } from './ServerWakeService.js';
 import { connectionStore } from '../state/connectionStore.js';
 import { matchViewStore } from '../state/matchViewStore.js';
@@ -49,7 +55,18 @@ interface RoomWireState {
   roundNumber: number;
   activeShooterId: string;
   winnerPlayerId: string;
+  nextFirstShooterId: string;
   firingOrder: Iterable<string>;
+  recapEntries: Iterable<{
+    shotId: string;
+    orderIndex: number;
+    shooterId: string;
+    outcome: RecapOutcome;
+    targetId: string;
+    targetHeartsRemaining: number;
+    fatal: boolean;
+    resolvedAtServerMs: number;
+  }>;
   players: PlayerMapWireState;
 }
 
@@ -75,6 +92,8 @@ export class InvisiFightClient {
   #room: Room<RoomWireState> | null = null;
   #reconnectPromise: Promise<void> | null = null;
   #pageClosing = false;
+  #sonarSequence = 0;
+  #shotLockSequence = 0;
 
   get room(): Room<RoomWireState> | null {
     return this.#room;
@@ -139,6 +158,63 @@ export class InvisiFightClient {
     this.#room.send('input:player', input);
   }
 
+  triggerSonar(): boolean {
+    const roomSession = sessionStore.getState().roomSession;
+    const match = matchViewStore.getState();
+    const privateState = privateSnapshotStore.getState();
+    const localPlayer = match.players.find((player) => player.playerId === roomSession?.playerId);
+    const nowServerMs = serverClock.now();
+    if (
+      !this.#room ||
+      connectionStore.getState().status !== 'connected' ||
+      !roomSession ||
+      match.phase !== 'hunt' ||
+      !localPlayer?.alive ||
+      localPlayer.role === 'spectator' ||
+      !privateState.playerState ||
+      nowServerMs < privateState.sonarReadyAtServerMs ||
+      privateState.localSonarPulse?.status === 'predicted'
+    ) {
+      return false;
+    }
+
+    this.#sonarSequence += 1;
+    privateState.predictSonar(this.#sonarSequence, nowServerMs, privateState.playerState.position);
+    this.#room.send('input:sonar', {
+      sessionToken: roomSession.sessionToken,
+      sequence: this.#sonarSequence,
+      clientTimeMs: Date.now(),
+    });
+    return true;
+  }
+
+  lockShot(aimAngleRad: number): boolean {
+    const roomSession = sessionStore.getState().roomSession;
+    const match = matchViewStore.getState();
+    const localPlayer = match.players.find((player) => player.playerId === roomSession?.playerId);
+    if (
+      !this.#room ||
+      connectionStore.getState().status !== 'connected' ||
+      !roomSession ||
+      match.phase !== 'commit' ||
+      !localPlayer?.alive ||
+      localPlayer.role === 'spectator' ||
+      !Number.isFinite(aimAngleRad)
+    ) {
+      return false;
+    }
+
+    this.#shotLockSequence += 1;
+    privateSnapshotStore.getState().predictShotLock(this.#shotLockSequence, aimAngleRad);
+    this.#room.send('input:lock-shot', {
+      sessionToken: roomSession.sessionToken,
+      aimAngleRad,
+      sequence: this.#shotLockSequence,
+      clientTimeMs: Date.now(),
+    });
+    return true;
+  }
+
   startMatch(): void {
     const token = sessionStore.getState().roomSession?.sessionToken;
     if (!this.#room || !token) return;
@@ -198,15 +274,22 @@ export class InvisiFightClient {
         roomId: event.roomId,
         roomCode: event.roomCode,
       });
+      privateSnapshotStore.getState().restoreSonarReadiness(event.sonarReadyAtServerMs);
+      privateSnapshotStore.getState().restoreShotLock(event.shotLockStatus);
+      this.#shotLockSequence = Math.max(
+        this.#shotLockSequence,
+        event.shotLockStatus?.requestSequence ?? 0,
+      );
       connectionStore.getState().setRoom(event.roomId, event.roomCode);
       this.#routeForState(room.state);
     });
     room.onMessage<PrivatePlayerStateEvent>('private:state', (event) =>
       privateSnapshotStore.getState().applyPlayerState(event),
     );
-    room.onMessage<PrivateSonarSnapshotEvent>('private:sonar', (event) =>
-      privateSnapshotStore.getState().addDetection(event),
-    );
+    room.onMessage<unknown>('private:sonar', routePrivateSonarSnapshot);
+    room.onMessage<unknown>('private:sonar-status', routeSonarStatus);
+    room.onMessage<unknown>('match:sonar-emission', routePublicSonarEmission);
+    room.onMessage<unknown>('private:shot-lock-status', routeShotLockStatus);
     room.onMessage<ErrorEvent>('room:error', (event) => uiStore.getState().setError(event.message));
     room.onMessage<ShotResolutionEvent>('match:shot', (event) =>
       matchViewStore.getState().applyShot(event),
@@ -230,13 +313,11 @@ export class InvisiFightClient {
 
   #applyState(state: RoomWireState): void {
     if (!state || typeof state.protocolVersion !== 'number' || !state.players?.forEach) return;
-    if (state.protocolVersion > GAMEPLAY_CONFIG.protocolVersion) {
+    if (state.protocolVersion !== GAMEPLAY_CONFIG.protocolVersion) {
       sessionStore.getState().clearRoomSession();
       connectionStore.getState().setStatus('error');
       uiStore.getState().setScreen('landing');
-      uiStore
-        .getState()
-        .setError('This game client is out of date. Refresh to load the latest version.');
+      uiStore.getState().setError('Game versions do not match. Refresh to load the latest client.');
       return;
     }
     const players: PublicPlayerState[] = [];
@@ -251,7 +332,10 @@ export class InvisiFightClient {
         alive: player.alive,
         isHost: player.isHost,
         revealedPosition: revealed ? { x: player.revealedX, y: player.revealedY } : null,
-        lockedAimAngleRad: state.phase === 'resolution' ? player.lockedAimAngleRad : null,
+        lockedAimAngleRad:
+          state.phase === 'resolution' || state.phase === 'recap' || state.phase === 'results'
+            ? player.lockedAimAngleRad
+            : null,
       });
     });
     matchViewStore.getState().applyPublicState({
@@ -262,11 +346,29 @@ export class InvisiFightClient {
       roundNumber: state.roundNumber,
       activeShooterId: state.activeShooterId || null,
       firingOrder: Array.from(state.firingOrder ?? []),
+      nextFirstShooterId: state.nextFirstShooterId || null,
+      recapEntries: Array.from(state.recapEntries ?? [], (entry) => ({
+        shotId: entry.shotId,
+        orderIndex: entry.orderIndex,
+        shooterId: entry.shooterId,
+        outcome: entry.outcome,
+        targetId: entry.targetId || null,
+        targetHeartsRemaining:
+          entry.targetHeartsRemaining >= 0 ? entry.targetHeartsRemaining : null,
+        fatal: entry.fatal,
+        resolvedAtServerMs: entry.resolvedAtServerMs,
+      })),
       winnerPlayerId: state.winnerPlayerId || null,
       players,
       lastShot: matchViewStore.getState().lastShot,
     });
-    privateSnapshotStore.getState().prune(Date.now());
+    const nowServerMs = serverClock.now();
+    privateSnapshotStore.getState().prune(nowServerMs);
+    matchViewStore.getState().pruneSonarEmissions(nowServerMs);
+    if (state.phase !== 'hunt') privateSnapshotStore.getState().cancelSonarPrediction();
+    if (state.phase === 'hunt' || state.phase === 'lobby') {
+      privateSnapshotStore.getState().clearShotLock();
+    }
     this.#routeForState(state);
   }
 

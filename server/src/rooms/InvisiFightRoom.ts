@@ -4,16 +4,24 @@ import type { Client } from '@colyseus/core';
 import {
   GAMEPLAY_CONFIG,
   NETWORK_TICK_MS,
+  type AcceptedShotLockStatusEvent,
   type ErrorEvent,
+  type LockShotMessage,
   type PlayerInputMessage,
   type PrivatePlayerStateEvent,
   type PrivateSonarSnapshotEvent,
+  type PublicSonarEmissionEvent,
   type ReplayToLobbyMessage,
   type RoomJoinOptions,
   type SessionReadyEvent,
+  type ShotLockStatusEvent,
+  type SonarStatusEvent,
   type StartMatchMessage,
+  type TriggerSonarMessage,
   playerInputSchema,
+  lockShotSchema,
   roomJoinOptionsSchema,
+  triggerSonarSchema,
 } from '@invisi-fight/shared';
 import { AuditLogService } from '../services/AuditLogService.js';
 import { RoomAuthError, RoomAuthService } from '../services/RoomAuthService.js';
@@ -25,7 +33,11 @@ import { InputRateLimiter } from '../services/InputRateLimiter.js';
 import { SonarService } from '../services/SonarService.js';
 import { createRoomCode } from '../services/roomCode.js';
 import { ROOM_MESSAGES } from './InvisiFightRoomMessages.js';
-import { InvisiFightRoomState, PublicPlayerSchema } from './InvisiFightRoomState.js';
+import {
+  InvisiFightRoomState,
+  PublicPlayerSchema,
+  RecapEntrySchema,
+} from './InvisiFightRoomState.js';
 
 interface RuntimePlayer {
   playerId: string;
@@ -64,6 +76,12 @@ export class InvisiFightRoom extends Room<InvisiFightRoomState> {
     this.onMessage(ROOM_MESSAGES.SESSION_REQUEST, (client) => this.#sendSession(client));
     this.onMessage<PlayerInputMessage>(ROOM_MESSAGES.PLAYER_INPUT, (client, message) =>
       this.#applyInput(client, message),
+    );
+    this.onMessage<TriggerSonarMessage>(ROOM_MESSAGES.TRIGGER_SONAR, (client, message) =>
+      this.#triggerSonar(client, message),
+    );
+    this.onMessage<LockShotMessage>(ROOM_MESSAGES.LOCK_SHOT, (client, message) =>
+      this.#lockShot(client, message),
     );
     this.onMessage<StartMatchMessage>(ROOM_MESSAGES.START_MATCH, (client, message) =>
       this.#startMatch(client, message),
@@ -222,6 +240,8 @@ export class InvisiFightRoom extends Room<InvisiFightRoomState> {
       roomCode: this.state.roomCode,
       role: player.role,
       isHost: player.isHost,
+      sonarReadyAtServerMs: this.#sonar.readyAt(runtime.playerId),
+      shotLockStatus: this.#acceptedShotLockStatus(this.#combatants.get(runtime.playerId)),
       serverTimeMs: Date.now(),
     };
     client.send(ROOM_MESSAGES.SESSION_READY, event);
@@ -238,7 +258,7 @@ export class InvisiFightRoom extends Room<InvisiFightRoomState> {
         (entry) => entry.role !== 'spectator' && entry.connected,
       ).length;
       this.#auth.assertCanStart(player.role, activeCount, this.state.phase);
-      this.#startPlanning(true);
+      this.#startHunt(true);
     } catch (error) {
       this.#sendError(client, error);
     }
@@ -273,6 +293,9 @@ export class InvisiFightRoom extends Room<InvisiFightRoomState> {
       },
       aimAngleRad: angle + Math.PI,
       lockedAimAngleRad: angle + Math.PI,
+      lockSource: null,
+      lockSequence: -1,
+      lockedAtServerMs: 0,
       hearts: GAMEPLAY_CONFIG.startingHearts,
       alive: true,
       velocity: { x: 0, y: 0 },
@@ -281,7 +304,7 @@ export class InvisiFightRoom extends Room<InvisiFightRoomState> {
   }
 
   #applyInput(client: Client, message: PlayerInputMessage): void {
-    if (this.state.phase !== 'planning') return;
+    if (this.state.phase !== 'hunt' && this.state.phase !== 'commit') return;
     const runtime = this.#runtimeByClient.get(client.sessionId);
     const parsed = playerInputSchema.safeParse(message);
     if (!runtime || !parsed.success) return;
@@ -292,15 +315,172 @@ export class InvisiFightRoom extends Room<InvisiFightRoomState> {
     if (!this.#inputRateLimiter.allow(runtime.playerId)) return;
     if (parsed.data.sequence <= combatant.inputSequence) return;
     combatant.inputSequence = parsed.data.sequence;
+    combatant.aimAngleRad = parsed.data.aimAngleRad;
+    if (this.state.phase === 'commit') {
+      combatant.velocity.x = 0;
+      combatant.velocity.y = 0;
+      this.#sendPrivateState(combatant);
+      return;
+    }
     const magnitude = Math.hypot(parsed.data.moveX, parsed.data.moveY);
     const scale = magnitude > 1 ? 1 / magnitude : 1;
     combatant.velocity.x = parsed.data.moveX * scale * GAMEPLAY_CONFIG.playerSpeedPxPerSecond;
     combatant.velocity.y = parsed.data.moveY * scale * GAMEPLAY_CONFIG.playerSpeedPxPerSecond;
-    combatant.aimAngleRad = parsed.data.aimAngleRad;
+  }
+
+  #triggerSonar(client: Client, message: unknown): void {
+    const runtime = this.#runtimeByClient.get(client.sessionId);
+    const parsed = triggerSonarSchema.safeParse(message);
+    const requestSequence = this.#requestSequence(message);
+    const now = Date.now();
+    const record =
+      runtime && parsed.success
+        ? this.#sessions.verify(parsed.data.sessionToken, this.roomId, now)
+        : null;
+
+    if (!runtime || !parsed.success || !record || record.playerId !== runtime.playerId) {
+      const status: SonarStatusEvent = {
+        type: 'sonar_status',
+        accepted: false,
+        requestSequence,
+        readyAtServerMs: runtime ? Math.max(now, this.#sonar.readyAt(runtime.playerId)) : now,
+        reason: 'invalid_request',
+      };
+      client.send(ROOM_MESSAGES.SONAR_STATUS, status);
+      return;
+    }
+
+    const activation = this.#sonar.activate(
+      this.#sonarPlayers(),
+      runtime.playerId,
+      this.state.phase,
+      now,
+    );
+    if (!activation.accepted) {
+      const status: SonarStatusEvent = {
+        type: 'sonar_status',
+        accepted: false,
+        requestSequence: parsed.data.sequence,
+        readyAtServerMs: activation.readyAtServerMs,
+        reason: activation.reason,
+      };
+      client.send(ROOM_MESSAGES.SONAR_STATUS, status);
+      return;
+    }
+
+    const status: SonarStatusEvent = {
+      type: 'sonar_status',
+      accepted: true,
+      requestSequence: parsed.data.sequence,
+      activatedAtServerMs: activation.activatedAtServerMs,
+      readyAtServerMs: activation.readyAtServerMs,
+    };
+    client.send(ROOM_MESSAGES.SONAR_STATUS, status);
+
+    const emissionId = nanoid(12);
+    for (const detection of activation.detections) {
+      const snapshot: PrivateSonarSnapshotEvent = {
+        type: 'private_sonar_snapshot',
+        snapshotId: `${emissionId}:${detection.targetId}`,
+        detectedPlayerId: detection.targetId,
+        position: { ...detection.position },
+        detectedAtServerMs: detection.detectedAtServerMs,
+        expiresAtServerMs: detection.expiresAtServerMs,
+      };
+      client.send(ROOM_MESSAGES.PRIVATE_SONAR, snapshot);
+    }
+
+    const emission: PublicSonarEmissionEvent = {
+      type: 'sonar_emission',
+      emissionId,
+      emitterId: activation.detectorId,
+      approximateOrigin: { ...activation.approximateOrigin },
+      radius: GAMEPLAY_CONFIG.sonarPulseRadiusPx,
+      emittedAtServerMs: activation.activatedAtServerMs,
+      expiresAtServerMs:
+        activation.activatedAtServerMs + GAMEPLAY_CONFIG.sonarPulseVisualDurationMs,
+    };
+    for (const peer of this.clients) {
+      if (peer.sessionId === client.sessionId) continue;
+      const peerRuntime = this.#runtimeByClient.get(peer.sessionId);
+      const peerPlayer = peerRuntime ? this.state.players.get(peerRuntime.playerId) : undefined;
+      if (!peerPlayer?.connected || !peerPlayer.alive || peerPlayer.role === 'spectator') continue;
+      peer.send(ROOM_MESSAGES.SONAR_EMISSION, emission);
+    }
+  }
+
+  #lockShot(client: Client, message: unknown): void {
+    const runtime = this.#runtimeByClient.get(client.sessionId);
+    const parsed = lockShotSchema.safeParse(message);
+    const requestSequence = this.#requestSequence(message);
+    const now = Date.now();
+    const record =
+      runtime && parsed.success
+        ? this.#sessions.verify(parsed.data.sessionToken, this.roomId, now)
+        : null;
+    if (!runtime || !parsed.success || !record || record.playerId !== runtime.playerId) {
+      this.#sendShotLockRejection(client, requestSequence, now, 'invalid_request');
+      return;
+    }
+    if (this.state.phase !== 'commit') {
+      this.#sendShotLockRejection(client, parsed.data.sequence, now, 'wrong_phase');
+      return;
+    }
+    const player = this.state.players.get(runtime.playerId);
+    const combatant = this.#combatants.get(runtime.playerId);
+    if (!player || !combatant || player.role === 'spectator' || !combatant.alive) {
+      this.#sendShotLockRejection(client, parsed.data.sequence, now, 'not_active');
+      return;
+    }
+    if (parsed.data.sequence <= combatant.lockSequence) {
+      this.#sendShotLockRejection(client, parsed.data.sequence, now, 'stale_sequence');
+      return;
+    }
+
+    const replaced = combatant.lockSource === 'explicit';
+    combatant.lockedAimAngleRad = parsed.data.aimAngleRad;
+    combatant.lockSource = 'explicit';
+    combatant.lockSequence = parsed.data.sequence;
+    combatant.lockedAtServerMs = now;
+    const status: AcceptedShotLockStatusEvent = {
+      type: 'shot_lock_status',
+      accepted: true,
+      requestSequence: parsed.data.sequence,
+      lockedAimAngleRad: parsed.data.aimAngleRad,
+      lockSource: 'explicit',
+      replaced,
+      serverTimeMs: now,
+    };
+    client.send(ROOM_MESSAGES.SHOT_LOCK_STATUS, status);
+  }
+
+  #sonarPlayers() {
+    return Array.from(this.#combatants.values(), (combatant) => ({
+      playerId: combatant.playerId,
+      position: { ...combatant.position },
+      alive: combatant.alive,
+      spectator: this.state.players.get(combatant.playerId)?.role === 'spectator',
+    }));
+  }
+
+  #requestSequence(message: unknown): number {
+    if (typeof message !== 'object' || message === null || !('sequence' in message)) return 0;
+    const sequence = (message as { sequence?: unknown }).sequence;
+    return typeof sequence === 'number' && Number.isInteger(sequence) && sequence >= 0
+      ? sequence
+      : 0;
   }
 
   #simulate(deltaMs: number): void {
-    if (this.state.phase !== 'planning') return;
+    if (this.state.phase === 'commit') {
+      if (this.#matchClock.hasExpired(this.state.phaseEndsAtServerMs)) this.#beginResolution();
+      return;
+    }
+    if (this.state.phase === 'recap') {
+      if (this.#matchClock.hasExpired(this.state.phaseEndsAtServerMs)) this.#startHunt(false);
+      return;
+    }
+    if (this.state.phase !== 'hunt') return;
     const deltaSeconds = Math.min(deltaMs, 250) / 1_000;
     for (const combatant of this.#combatants.values()) {
       const publicPlayer = this.state.players.get(combatant.playerId);
@@ -321,8 +501,7 @@ export class InvisiFightRoom extends Room<InvisiFightRoomState> {
       );
       this.#sendPrivateState(combatant);
     }
-    this.#sampleSonar();
-    if (this.#matchClock.hasExpired(this.state.phaseEndsAtServerMs)) this.#beginResolution();
+    if (this.#matchClock.hasExpired(this.state.phaseEndsAtServerMs)) this.#startCommit();
   }
 
   #sendPrivateState(combatant: Combatant): void {
@@ -340,32 +519,7 @@ export class InvisiFightRoom extends Room<InvisiFightRoomState> {
     client.send(ROOM_MESSAGES.PRIVATE_STATE, event);
   }
 
-  #sampleSonar(): void {
-    const players = Array.from(this.#combatants.values()).map((combatant) => ({
-      playerId: combatant.playerId,
-      position: combatant.position,
-      alive: combatant.alive,
-      spectator: this.state.players.get(combatant.playerId)?.role === 'spectator',
-    }));
-    const nowMs = Date.now();
-    const detections = this.#sonar.sample(players, nowMs, this.state.phaseStartedAtServerMs);
-    for (const detection of detections) {
-      const client = this.#clientForPlayer(detection.detectorId);
-      if (!client) continue;
-      const event: PrivateSonarSnapshotEvent = {
-        type: 'private_sonar',
-        snapshotId: `${detection.cycle}:${detection.detectorId}:${detection.targetId}`,
-        detectedPlayerId: detection.targetId,
-        position: detection.position,
-        detectedAtServerMs: detection.detectedAtServerMs,
-        expiresAtServerMs: detection.expiresAtServerMs,
-        sweepAngleRad: detection.sweepAngleRad,
-      };
-      client.send(ROOM_MESSAGES.PRIVATE_SONAR, event);
-    }
-  }
-
-  #startPlanning(firstRound: boolean): void {
+  #startHunt(firstRound: boolean): void {
     const living = this.#livingCombatants();
     if (firstRound) {
       this.state.roundNumber = 1;
@@ -383,11 +537,13 @@ export class InvisiFightRoom extends Room<InvisiFightRoomState> {
       );
       this.#replaceFiringOrder(nextOrder);
     }
-    const window = this.#matchClock.planningWindow();
-    this.state.phase = 'planning';
+    const window = this.#matchClock.huntWindow();
+    this.state.phase = 'hunt';
     this.state.phaseStartedAtServerMs = window.startedAtServerMs;
     this.state.phaseEndsAtServerMs = window.endsAtServerMs;
     this.state.activeShooterId = '';
+    this.state.nextFirstShooterId = '';
+    this.state.recapEntries.clear();
     this.#sonar.reset();
     for (const combatant of living) {
       combatant.velocity.x = 0;
@@ -398,12 +554,29 @@ export class InvisiFightRoom extends Room<InvisiFightRoomState> {
         player.revealedY = -1;
         player.lockedAimAngleRad = 0;
       }
+      combatant.lockSource = null;
+      combatant.lockSequence = -1;
+      combatant.lockedAtServerMs = 0;
+    }
+    this.state.revision += 1;
+  }
+
+  #startCommit(): void {
+    if (this.state.phase !== 'hunt') return;
+    const window = this.#matchClock.commitWindow();
+    this.state.phase = 'commit';
+    this.state.phaseStartedAtServerMs = window.startedAtServerMs;
+    this.state.phaseEndsAtServerMs = window.endsAtServerMs;
+    for (const combatant of this.#livingCombatants()) {
+      combatant.velocity.x = 0;
+      combatant.velocity.y = 0;
+      this.#sendPrivateState(combatant);
     }
     this.state.revision += 1;
   }
 
   #beginResolution(): void {
-    if (this.state.phase !== 'planning') return;
+    if (this.state.phase !== 'commit') return;
     this.state.phase = 'resolution';
     this.state.phaseStartedAtServerMs = Date.now();
     this.state.phaseEndsAtServerMs = 0;
@@ -411,7 +584,15 @@ export class InvisiFightRoom extends Room<InvisiFightRoomState> {
     for (const combatant of combatants) {
       combatant.velocity.x = 0;
       combatant.velocity.y = 0;
-      combatant.lockedAimAngleRad = combatant.aimAngleRad;
+      if (combatant.lockSource !== 'explicit') {
+        combatant.lockedAimAngleRad = combatant.aimAngleRad;
+        combatant.lockSource = 'automatic';
+        combatant.lockSequence = Math.max(0, combatant.lockSequence);
+        combatant.lockedAtServerMs = Date.now();
+        const client = this.#clientForPlayer(combatant.playerId);
+        const status = this.#acceptedShotLockStatus(combatant);
+        if (client && status) client.send(ROOM_MESSAGES.SHOT_LOCK_STATUS, status);
+      }
     }
     this.#combat.separateOverlaps(combatants);
     this.#syncPublicCombatState(true);
@@ -430,11 +611,25 @@ export class InvisiFightRoom extends Room<InvisiFightRoomState> {
     if (!shooter) {
       this.clock.setTimeout(
         () => this.#resolveShotAt(index + 1),
-        GAMEPLAY_CONFIG.shotResolutionPauseMs,
+        GAMEPLAY_CONFIG.shotResolutionStepMs,
       );
       return;
     }
     this.state.activeShooterId = shooterId;
+    this.state.revision += 1;
+    this.clock.setTimeout(
+      () => this.#fireShotAt(index, shooterId),
+      GAMEPLAY_CONFIG.shotAnticipationMs,
+    );
+  }
+
+  #fireShotAt(index: number, shooterId: string): void {
+    if (this.state.phase !== 'resolution' || this.state.activeShooterId !== shooterId) return;
+    const shooter = this.#combatants.get(shooterId);
+    if (!shooter) {
+      this.#resolveShotAt(index + 1);
+      return;
+    }
     const event = this.#combat.resolveShot(
       shooter,
       Array.from(this.#combatants.values()),
@@ -443,26 +638,56 @@ export class InvisiFightRoom extends Room<InvisiFightRoomState> {
     );
     this.#syncPublicCombatState(true);
     this.state.revision += 1;
+    const recapEntry = new RecapEntrySchema();
+    recapEntry.shotId = event.shotId;
+    recapEntry.orderIndex = index;
+    recapEntry.shooterId = event.shooterId;
+    recapEntry.outcome = event.cancelled ? 'cancelled' : event.targetId ? 'hit' : 'miss';
+    recapEntry.targetId = event.targetId ?? '';
+    recapEntry.targetHeartsRemaining = event.targetId
+      ? (this.#combatants.get(event.targetId)?.hearts ?? -1)
+      : -1;
+    recapEntry.fatal = event.fatal;
+    recapEntry.resolvedAtServerMs = event.resolvedAtServerMs;
+    this.state.recapEntries.push(recapEntry);
     this.broadcast(ROOM_MESSAGES.SHOT_RESOLVED, event);
     const winner = this.#livingCombatants();
     if (winner.length === 1) {
       this.clock.setTimeout(
         () => this.#declareWinner(winner[0]!.playerId),
-        GAMEPLAY_CONFIG.shotResolutionPauseMs,
+        GAMEPLAY_CONFIG.shotResultHoldMs,
       );
       return;
     }
-    this.clock.setTimeout(
-      () => this.#resolveShotAt(index + 1),
-      GAMEPLAY_CONFIG.shotResolutionPauseMs,
+    const nextShooterDelayMs = Math.max(
+      GAMEPLAY_CONFIG.shotResultHoldMs,
+      GAMEPLAY_CONFIG.shotResolutionStepMs - GAMEPLAY_CONFIG.shotAnticipationMs,
     );
+    this.clock.setTimeout(() => this.#resolveShotAt(index + 1), nextShooterDelayMs);
   }
 
   #finishResolution(): void {
     if (this.state.phase !== 'resolution') return;
     const living = this.#livingCombatants();
     if (living.length === 1) this.#declareWinner(living[0]!.playerId);
-    else this.#startPlanning(false);
+    else this.#startRecap();
+  }
+
+  #startRecap(): void {
+    if (this.state.phase !== 'resolution') return;
+    const window = this.#matchClock.recapWindow();
+    this.state.phase = 'recap';
+    this.state.phaseStartedAtServerMs = window.startedAtServerMs;
+    this.state.phaseEndsAtServerMs = window.endsAtServerMs;
+    this.state.activeShooterId = '';
+    const nextOrder = this.#order.rotateOne(
+      Array.from(this.state.firingOrder).filter((playerId): playerId is string =>
+        Boolean(playerId),
+      ),
+      new Set(this.#livingCombatants().map((combatant) => combatant.playerId)),
+    );
+    this.state.nextFirstShooterId = nextOrder[0] ?? '';
+    this.state.revision += 1;
   }
 
   #declareWinner(playerId: string): void {
@@ -471,6 +696,7 @@ export class InvisiFightRoom extends Room<InvisiFightRoomState> {
     this.state.phaseEndsAtServerMs = 0;
     this.state.activeShooterId = '';
     this.state.winnerPlayerId = playerId;
+    this.state.nextFirstShooterId = '';
     this.state.revision += 1;
   }
 
@@ -481,8 +707,8 @@ export class InvisiFightRoom extends Room<InvisiFightRoomState> {
       player.hearts = combatant.hearts;
       player.alive = combatant.alive;
       player.lockedAimAngleRad = combatant.lockedAimAngleRad;
-      player.revealedX = reveal && combatant.alive ? combatant.position.x : -1;
-      player.revealedY = reveal && combatant.alive ? combatant.position.y : -1;
+      player.revealedX = reveal ? combatant.position.x : -1;
+      player.revealedY = reveal ? combatant.position.y : -1;
       if (!combatant.alive) player.role = 'spectator';
     }
   }
@@ -503,6 +729,35 @@ export class InvisiFightRoom extends Room<InvisiFightRoomState> {
     return this.clients.find(
       (client) => this.#runtimeByClient.get(client.sessionId)?.playerId === playerId,
     );
+  }
+
+  #acceptedShotLockStatus(combatant: Combatant | undefined): AcceptedShotLockStatusEvent | null {
+    if (!combatant?.lockSource) return null;
+    return {
+      type: 'shot_lock_status',
+      accepted: true,
+      requestSequence: Math.max(0, combatant.lockSequence),
+      lockedAimAngleRad: combatant.lockedAimAngleRad,
+      lockSource: combatant.lockSource,
+      replaced: false,
+      serverTimeMs: combatant.lockedAtServerMs,
+    };
+  }
+
+  #sendShotLockRejection(
+    client: Client,
+    requestSequence: number,
+    serverTimeMs: number,
+    reason: Extract<ShotLockStatusEvent, { accepted: false }>['reason'],
+  ): void {
+    const status: ShotLockStatusEvent = {
+      type: 'shot_lock_status',
+      accepted: false,
+      requestSequence,
+      reason,
+      serverTimeMs,
+    };
+    client.send(ROOM_MESSAGES.SHOT_LOCK_STATUS, status);
   }
 
   #replaceRuntimeConnection(playerId: string, replacementSessionId: string): void {
@@ -526,6 +781,7 @@ export class InvisiFightRoom extends Room<InvisiFightRoomState> {
     this.state.players.delete(playerId);
     this.#combatants.delete(playerId);
     this.#inputRateLimiter.remove(playerId);
+    this.#sonar.remove(playerId);
     this.#replaceFiringOrder(
       Array.from(this.state.firingOrder).filter(
         (entry): entry is string => Boolean(entry) && entry !== playerId,
@@ -535,7 +791,12 @@ export class InvisiFightRoom extends Room<InvisiFightRoomState> {
     if (this.state.winnerPlayerId === playerId) this.state.winnerPlayerId = '';
     this.#assignHost();
 
-    if (this.state.phase === 'planning' || this.state.phase === 'resolution') {
+    if (
+      this.state.phase === 'hunt' ||
+      this.state.phase === 'commit' ||
+      this.state.phase === 'resolution' ||
+      this.state.phase === 'recap'
+    ) {
       const living = this.#livingCombatants();
       if (living.length === 1) this.#declareWinner(living[0]!.playerId);
       else if (living.length === 0) this.#resetToLobby();
@@ -570,7 +831,9 @@ export class InvisiFightRoom extends Room<InvisiFightRoomState> {
     this.state.roundNumber = 0;
     this.state.activeShooterId = '';
     this.state.winnerPlayerId = '';
+    this.state.nextFirstShooterId = '';
     this.state.firingOrder.clear();
+    this.state.recapEntries.clear();
     this.#combatants.clear();
     const players = Array.from(this.state.players.values());
     players.forEach((player, index) => {

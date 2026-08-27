@@ -6,21 +6,24 @@ async function localPlayerX(page: Page): Promise<number> {
   return Number(value);
 }
 
-test('two players can create, join, and start a private match', async ({ context, page: host }) => {
+test('two players complete the readable v2 loop with sonar, locks, spectator, and replay', async ({
+  context,
+  page: host,
+}) => {
   test.setTimeout(120_000);
   await host.setViewportSize({ width: 1904, height: 884 });
   const guest = await context.newPage();
   await guest.setViewportSize({ width: 1904, height: 884 });
 
   await host.goto('./');
-  await host.getByLabel('Display name').fill('Host');
+  await host.getByLabel('Fighter name').fill('Host');
   await host.getByRole('button', { name: 'Create room' }).click();
   await expect(host.getByRole('heading', { name: 'Waiting for the fight' })).toBeVisible();
   const roomHeading = await host.getByRole('heading', { name: /^Room [A-Z2-9]{6}$/ }).innerText();
   const roomCode = roomHeading.replace('Room ', '');
 
   await guest.goto('./');
-  await guest.getByLabel('Display name').fill('Guest');
+  await guest.getByLabel('Fighter name').fill('Guest');
   await guest.getByLabel('Room code').fill(roomCode);
   await guest.getByRole('button', { name: 'Join room' }).click();
   await expect(guest.getByRole('heading', { name: 'Waiting for the fight' })).toBeVisible();
@@ -29,12 +32,19 @@ test('two players can create, join, and start a private match', async ({ context
   const startButton = host.getByRole('button', { name: 'Start match' });
   await expect(startButton).toBeEnabled();
   await startButton.click();
-  await expect(host.getByRole('heading', { name: 'Stay unreadable' })).toBeVisible();
-  await expect(guest.getByRole('heading', { name: 'Stay unreadable' })).toBeVisible();
+  await expect(host.getByRole('heading', { name: 'Invisi Fight' })).toBeVisible();
+  await expect(guest.getByRole('heading', { name: 'Invisi Fight' })).toBeVisible();
   await Promise.all([
     expect(host.locator('canvas')).toBeVisible({ timeout: 20_000 }),
     expect(guest.locator('canvas')).toBeVisible({ timeout: 20_000 }),
   ]);
+  await expect(host.locator('#game-frame')).toHaveAttribute('data-renderer', 'three');
+  await expect(host.locator('#game-frame')).toHaveAttribute('data-camera-mode', 'orthographic');
+  const observedHuntSeconds = Number(await host.locator('.countdown__value').textContent());
+  expect(observedHuntSeconds).toBeGreaterThan(0);
+  expect(observedHuntSeconds).toBeLessThanOrEqual(15);
+  await expect(host.locator('.heart-meter__heart')).toHaveCount(2);
+  await expect(host.locator('.action-panel')).toContainText('Ready');
 
   const canvasBounds = await host.locator('canvas').boundingBox();
   expect(canvasBounds).not.toBeNull();
@@ -46,18 +56,54 @@ test('two players can create, join, and start a private match', async ({ context
     { timeout: 10_000 },
   );
   const startingX = await localPlayerX(host);
-  await host.keyboard.down('d');
-  await host.waitForTimeout(600);
-  await host.keyboard.up('d');
-  await expect.poll(() => localPlayerX(host)).toBeGreaterThan(startingX + 40);
+  await host.keyboard.down('a');
+  await host.waitForTimeout(300);
+  await host.keyboard.up('a');
+  await expect.poll(() => localPlayerX(host)).toBeLessThan(startingX - 20);
+
+  await host.keyboard.press('Space');
+  await expect(host.locator('.action-panel')).toHaveAttribute('data-ready', 'false');
+  await Promise.all([
+    expect(host.locator('#game-frame')).toHaveAttribute('data-private-detections', '1'),
+    expect(guest.locator('#game-frame')).toHaveAttribute('data-public-sonar-emission-count', '1'),
+  ]);
+  await host.waitForTimeout(3_100);
+  await expect(host.locator('#game-frame')).toHaveAttribute('data-phase', 'hunt');
+  await host.keyboard.press('Space');
+  await expect(guest.locator('#game-frame')).toHaveAttribute(
+    'data-public-sonar-emission-count',
+    '2',
+  );
+
+  await expect(host.locator('#game-frame')).toHaveAttribute(
+    'data-three-nonblank-samples',
+    /^\d+$/,
+    { timeout: 10_000 },
+  );
+  expect(
+    Number(await host.locator('#game-frame').getAttribute('data-three-nonblank-samples')),
+  ).toBeGreaterThan(0);
+  await host.mouse.move(
+    canvasBounds!.x + canvasBounds!.width - 20,
+    canvasBounds!.y + canvasBounds!.height / 2,
+  );
+  await expect(host.locator('#game-frame')).toHaveAttribute('data-local-gun-angle', /^-?\d+\.\d+$/);
+  const rightAim = Number(await host.locator('#game-frame').getAttribute('data-local-gun-angle'));
+  await host.mouse.move(canvasBounds!.x + 20, canvasBounds!.y + canvasBounds!.height / 2);
+  await expect
+    .poll(async () =>
+      Number(await host.locator('#game-frame').getAttribute('data-local-gun-angle')),
+    )
+    .not.toBeCloseTo(rightAim, 1);
 
   const spectator = await context.newPage();
   await spectator.goto('./');
-  await spectator.getByLabel('Display name').fill('Watcher');
+  await spectator.getByLabel('Fighter name').fill('Watcher');
   await spectator.getByLabel('Room code').fill(roomCode);
   await spectator.getByRole('button', { name: 'Join room' }).click();
-  await expect(spectator.getByRole('heading', { name: 'You are spectating' })).toBeVisible();
+  await expect(spectator.locator('.match-hud--spectator')).toBeVisible();
   await expect(spectator.locator('canvas')).toBeVisible({ timeout: 20_000 });
+  await expect(spectator.locator('#game-frame')).toHaveAttribute('data-private-detections', '0');
 
   const hostCanvas = await host.locator('canvas').boundingBox();
   const guestCanvas = await guest.locator('canvas').boundingBox();
@@ -69,8 +115,26 @@ test('two players can create, join, and start a private match', async ({ context
     guestCanvas!.y + guestCanvas!.height / 2,
   );
 
-  await expect(host.getByText(/wins\.|You survived the dark\./)).toBeVisible({ timeout: 40_000 });
-  await expect(guest.getByText(/wins\.|You survived the dark\./)).toBeVisible({ timeout: 40_000 });
+  await expect(host.locator('.phase-label--commit')).toBeVisible({ timeout: 20_000 });
+  await host.mouse.click(hostCanvas!.x + 10, hostCanvas!.y + hostCanvas!.height / 2);
+  await expect(host.locator('.action-panel')).toHaveAttribute('data-lock-state', 'explicit');
+  await expect(host.locator('.action-panel')).toContainText('Aim locked');
+
+  await Promise.all([
+    expect(host.locator('.phase-label--resolution')).toBeVisible({ timeout: 6_000 }),
+    expect(guest.locator('#game-frame')).toHaveAttribute('data-lock-source', 'automatic', {
+      timeout: 6_000,
+    }),
+    expect(host.locator('#game-frame')).toHaveAttribute('data-active-shooter-seen', 'true', {
+      timeout: 6_000,
+    }),
+  ]);
+  await expect(host.locator('html')).toHaveAttribute('data-recap-seen', 'true', {
+    timeout: 8_000,
+  });
+
+  await expect(host.getByText(/wins\.|You survived the dark\./)).toBeVisible({ timeout: 60_000 });
+  await expect(guest.getByText(/wins\.|You survived the dark\./)).toBeVisible({ timeout: 60_000 });
   await host.getByRole('button', { name: 'Replay to lobby' }).click();
   await expect(host.getByRole('heading', { name: 'Waiting for the fight' })).toBeVisible();
   await expect(guest.getByRole('heading', { name: 'Waiting for the fight' })).toBeVisible();
@@ -78,11 +142,9 @@ test('two players can create, join, and start a private match', async ({ context
 
 test('keyboard users can create a room and receive focus on the next screen', async ({ page }) => {
   await page.goto('./');
-  await expect(
-    page.getByRole('heading', { name: 'Move unseen. Scan carefully. Commit the shot.' }),
-  ).toBeFocused();
+  await expect(page.getByRole('heading', { name: 'INVISI FIGHT' })).toBeFocused();
   await page.keyboard.press('Tab');
-  const nameInput = page.getByLabel('Display name');
+  const nameInput = page.getByLabel('Fighter name');
   await expect(nameInput).toBeFocused();
   await nameInput.fill('KeyboardHost');
   await page.keyboard.press('Tab');
@@ -94,7 +156,7 @@ test('keyboard users can create a room and receive focus on the next screen', as
 test('a room host reconnects after refreshing the room URL', async ({ page }) => {
   test.setTimeout(30_000);
   await page.goto('./');
-  await page.getByLabel('Display name').fill('ReconnectHost');
+  await page.getByLabel('Fighter name').fill('ReconnectHost');
   await page.getByRole('button', { name: 'Create room' }).click();
 
   const roomHeading = page.getByRole('heading', { name: /^Room [A-Z2-9]{6}$/ });
@@ -111,12 +173,16 @@ test('a room host reconnects after refreshing the room URL', async ({ page }) =>
 test('landing actions stack without horizontal overflow on a narrow viewport', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await page.goto('./');
-  const panels = page.locator('.landing-grid > .panel');
-  const first = await panels.nth(0).boundingBox();
-  const second = await panels.nth(1).boundingBox();
-  expect(first).not.toBeNull();
-  expect(second).not.toBeNull();
-  expect(second!.y).toBeGreaterThan(first!.y + first!.height);
+  const nameInput = await page.getByLabel('Fighter name').boundingBox();
+  const createButton = await page.getByRole('button', { name: 'Create room' }).boundingBox();
+  const codeInput = await page.getByLabel('Room code').boundingBox();
+  const joinButton = await page.getByRole('button', { name: 'Join room' }).boundingBox();
+  expect(nameInput).not.toBeNull();
+  expect(createButton).not.toBeNull();
+  expect(codeInput).not.toBeNull();
+  expect(joinButton).not.toBeNull();
+  expect(createButton!.y).toBeGreaterThan(nameInput!.y + nameInput!.height);
+  expect(joinButton!.y).toBeGreaterThan(codeInput!.y + codeInput!.height);
   const overflow = await page.evaluate(() => ({
     innerWidth: window.innerWidth,
     rootScrollWidth: document.documentElement.scrollWidth,

@@ -7,7 +7,7 @@ describe('RoomAuthService', () => {
   it('should make the creator host and late joiners spectators', () => {
     expect(service.roleForJoin('lobby', true)).toBe('host');
     expect(service.roleForJoin('lobby', false)).toBe('player');
-    expect(service.roleForJoin('planning', false)).toBe('spectator');
+    expect(service.roleForJoin('hunt', false)).toBe('spectator');
   });
 
   it('should enforce host-only start and minimum players', () => {

@@ -14,6 +14,28 @@ export class PublicPlayerSchema extends Schema {
   lockedAimAngleRad = 0;
 }
 
+export class RecapEntrySchema extends Schema {
+  shotId = '';
+  orderIndex = 0;
+  shooterId = '';
+  outcome = 'miss';
+  targetId = '';
+  targetHeartsRemaining = -1;
+  fatal = false;
+  resolvedAtServerMs = 0;
+}
+
+defineTypes(RecapEntrySchema, {
+  shotId: 'string',
+  orderIndex: 'number',
+  shooterId: 'string',
+  outcome: 'string',
+  targetId: 'string',
+  targetHeartsRemaining: 'number',
+  fatal: 'boolean',
+  resolvedAtServerMs: 'number',
+});
+
 defineTypes(PublicPlayerSchema, {
   playerId: 'string',
   displayName: 'string',
@@ -38,8 +60,10 @@ export class InvisiFightRoomState extends Schema {
   hostPlayerId = '';
   activeShooterId = '';
   winnerPlayerId = '';
+  nextFirstShooterId = '';
   players = new MapSchema<PublicPlayerSchema>();
   firingOrder = new ArraySchema<string>();
+  recapEntries = new ArraySchema<RecapEntrySchema>();
 
   constructor(roomCode = '') {
     super();
@@ -58,6 +82,8 @@ defineTypes(InvisiFightRoomState, {
   hostPlayerId: 'string',
   activeShooterId: 'string',
   winnerPlayerId: 'string',
+  nextFirstShooterId: 'string',
   players: { map: PublicPlayerSchema },
   firingOrder: ['string'],
+  recapEntries: [RecapEntrySchema],
 });

@@ -9,6 +9,7 @@ import { disposeWhenDetached } from './disposeWhenDetached.js';
 import { screenFrame } from './screenFrame.js';
 
 export function LobbyScreen(): HTMLElement {
+  delete document.documentElement.dataset.recapSeen;
   const screen = screenFrame(
     'Room lobby',
     'Waiting for the fight',

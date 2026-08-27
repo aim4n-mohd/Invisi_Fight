@@ -5,6 +5,8 @@ const MOVEMENT_CODES = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD']);
 export class KeyboardMovementController {
   readonly #pressed = new Set<string>();
   readonly #target: Window;
+  #sonarHeld = false;
+  #sonarQueued = false;
 
   constructor(target: Window = window) {
     this.#target = target;
@@ -20,20 +22,39 @@ export class KeyboardMovementController {
     };
   }
 
+  consumeSonarTrigger(): boolean {
+    const queued = this.#sonarQueued;
+    this.#sonarQueued = false;
+    return queued;
+  }
+
   destroy(): void {
     this.#target.removeEventListener('keydown', this.#onKeyDown);
     this.#target.removeEventListener('keyup', this.#onKeyUp);
     this.#target.removeEventListener('blur', this.#onBlur);
     this.#pressed.clear();
+    this.#sonarHeld = false;
+    this.#sonarQueued = false;
   }
 
   readonly #onKeyDown = (event: KeyboardEvent): void => {
+    if (event.code === 'Space') {
+      event.preventDefault();
+      if (!this.#sonarHeld) this.#sonarQueued = true;
+      this.#sonarHeld = true;
+      return;
+    }
     if (!MOVEMENT_CODES.has(event.code)) return;
     event.preventDefault();
     this.#pressed.add(event.code);
   };
 
   readonly #onKeyUp = (event: KeyboardEvent): void => {
+    if (event.code === 'Space') {
+      event.preventDefault();
+      this.#sonarHeld = false;
+      return;
+    }
     if (!MOVEMENT_CODES.has(event.code)) return;
     event.preventDefault();
     this.#pressed.delete(event.code);
@@ -41,5 +62,7 @@ export class KeyboardMovementController {
 
   readonly #onBlur = (): void => {
     this.#pressed.clear();
+    this.#sonarHeld = false;
+    this.#sonarQueued = false;
   };
 }

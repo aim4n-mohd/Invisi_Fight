@@ -3,6 +3,7 @@ import { Server } from '@colyseus/core';
 import { WebSocketTransport } from '@colyseus/ws-transport';
 import cors from 'cors';
 import express, { type Express } from 'express';
+import { GAMEPLAY_CONFIG } from '@invisi-fight/shared';
 import { InvisiFightRoom } from './rooms/InvisiFightRoom.js';
 import type { ServerEnvironment } from './config/env.js';
 
@@ -34,9 +35,11 @@ export function createHttpApp(environment: ServerEnvironment): Express {
     });
   });
   app.get('/api/v1/config', (_request, response) => {
-    response
-      .status(200)
-      .json({ protocolVersion: 1, roomName: 'invisi_fight', serverTimeMs: Date.now() });
+    response.status(200).json({
+      protocolVersion: GAMEPLAY_CONFIG.protocolVersion,
+      roomName: 'invisi_fight',
+      serverTimeMs: Date.now(),
+    });
   });
   return app;
 }

@@ -1,10 +1,4 @@
-import {
-  GAMEPLAY_CONFIG,
-  SONAR_WEDGE_RADIANS,
-  isPointInsideWedge,
-  sonarSweepAngle,
-  type Vector2,
-} from '@invisi-fight/shared';
+import { GAMEPLAY_CONFIG, type MatchPhase, type Vector2 } from '@invisi-fight/shared';
 
 export interface SonarPlayer {
   playerId: string;
@@ -17,68 +11,105 @@ export interface SonarDetection {
   detectorId: string;
   targetId: string;
   position: Vector2;
-  sweepAngleRad: number;
   detectedAtServerMs: number;
   expiresAtServerMs: number;
-  cycle: number;
+}
+
+export type SonarRejectionReason = 'cooldown' | 'wrong_phase' | 'not_active';
+
+export interface AcceptedSonarActivation {
+  accepted: true;
+  detectorId: string;
+  activatedAtServerMs: number;
+  readyAtServerMs: number;
+  approximateOrigin: Vector2;
+  detections: SonarDetection[];
+}
+
+export interface RejectedSonarActivation {
+  accepted: false;
+  reason: SonarRejectionReason;
+  readyAtServerMs: number;
+}
+
+export type SonarActivation = AcceptedSonarActivation | RejectedSonarActivation;
+
+function quantize(value: number, maximum: number): number {
+  const step = GAMEPLAY_CONFIG.sonarOriginQuantizationPx;
+  return Math.min(maximum, Math.max(0, Math.round(value / step) * step));
 }
 
 export class SonarService {
-  readonly #emittedKeys = new Set<string>();
+  readonly #readyAtByPlayer = new Map<string, number>();
 
-  sample(
+  activate(
     players: readonly SonarPlayer[],
+    detectorId: string,
+    phase: MatchPhase,
     serverTimeMs: number,
-    phaseStartedAtMs: number,
-  ): SonarDetection[] {
-    const elapsed = Math.max(0, serverTimeMs - phaseStartedAtMs);
-    const cycle = Math.floor(elapsed / GAMEPLAY_CONFIG.sonarRotationPeriodMs);
-    const angle = sonarSweepAngle(
-      serverTimeMs,
-      phaseStartedAtMs,
-      GAMEPLAY_CONFIG.sonarRotationPeriodMs,
-    );
-    const radius = Math.hypot(GAMEPLAY_CONFIG.arenaWidth, GAMEPLAY_CONFIG.arenaHeight);
-    const detections: SonarDetection[] = [];
+  ): SonarActivation {
+    const currentReadyAt = this.readyAt(detectorId);
+    if (phase !== 'hunt') {
+      return {
+        accepted: false,
+        reason: 'wrong_phase',
+        readyAtServerMs: Math.max(serverTimeMs, currentReadyAt),
+      };
+    }
 
-    for (const detector of players) {
-      if (!detector.alive || detector.spectator) continue;
-      for (const target of players) {
-        if (!target.alive || target.spectator || detector.playerId === target.playerId) continue;
-        const key = `${cycle}:${detector.playerId}:${target.playerId}`;
-        if (this.#emittedKeys.has(key)) continue;
-        if (
-          !isPointInsideWedge(
-            detector.position,
-            target.position,
-            angle,
-            SONAR_WEDGE_RADIANS,
-            radius,
-          )
-        ) {
-          continue;
-        }
-        this.#emittedKeys.add(key);
-        detections.push({
-          detectorId: detector.playerId,
+    const detector = players.find((player) => player.playerId === detectorId);
+    if (!detector?.alive || detector.spectator) {
+      return {
+        accepted: false,
+        reason: 'not_active',
+        readyAtServerMs: Math.max(serverTimeMs, currentReadyAt),
+      };
+    }
+    if (serverTimeMs < currentReadyAt) {
+      return { accepted: false, reason: 'cooldown', readyAtServerMs: currentReadyAt };
+    }
+
+    const readyAtServerMs = serverTimeMs + GAMEPLAY_CONFIG.sonarCooldownMs;
+    this.#readyAtByPlayer.set(detectorId, readyAtServerMs);
+    const radiusSquared = GAMEPLAY_CONFIG.sonarPulseRadiusPx ** 2;
+    const detections = players.flatMap<SonarDetection>((target) => {
+      if (!target.alive || target.spectator || target.playerId === detectorId) return [];
+      const dx = target.position.x - detector.position.x;
+      const dy = target.position.y - detector.position.y;
+      if (dx * dx + dy * dy > radiusSquared) return [];
+      return [
+        {
+          detectorId,
           targetId: target.playerId,
           position: { ...target.position },
-          sweepAngleRad: angle,
           detectedAtServerMs: serverTimeMs,
-          expiresAtServerMs: serverTimeMs + GAMEPLAY_CONFIG.sonarFadeDurationMs,
-          cycle,
-        });
-      }
-    }
+          expiresAtServerMs: serverTimeMs + GAMEPLAY_CONFIG.sonarSnapshotDurationMs,
+        },
+      ];
+    });
 
-    const oldestCycle = cycle - 2;
-    for (const key of this.#emittedKeys) {
-      if (Number(key.split(':', 1)[0]) < oldestCycle) this.#emittedKeys.delete(key);
-    }
-    return detections;
+    return {
+      accepted: true,
+      detectorId,
+      activatedAtServerMs: serverTimeMs,
+      readyAtServerMs,
+      approximateOrigin: {
+        x: quantize(detector.position.x, GAMEPLAY_CONFIG.arenaWidth),
+        y: quantize(detector.position.y, GAMEPLAY_CONFIG.arenaHeight),
+      },
+      detections,
+    };
+  }
+
+  readyAt(playerId: string): number {
+    return this.#readyAtByPlayer.get(playerId) ?? 0;
+  }
+
+  remove(playerId: string): void {
+    this.#readyAtByPlayer.delete(playerId);
   }
 
   reset(): void {
-    this.#emittedKeys.clear();
+    this.#readyAtByPlayer.clear();
   }
 }

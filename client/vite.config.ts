@@ -17,6 +17,7 @@ export default defineConfig(({ mode }) => {
         output: {
           manualChunks: {
             phaser: ['phaser'],
+            three: ['three'],
             multiplayer: ['colyseus.js'],
           },
         },

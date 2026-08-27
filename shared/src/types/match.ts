@@ -1,11 +1,27 @@
-export type MatchPhase = 'lobby' | 'planning' | 'resolution' | 'results';
+export const MATCH_PHASES = ['lobby', 'hunt', 'commit', 'resolution', 'recap', 'results'] as const;
+
+export type MatchPhase = (typeof MATCH_PHASES)[number];
 export type PlayerRole = 'host' | 'player' | 'spectator';
+export type ShotLockSource = 'explicit' | 'automatic';
 export type ConnectionStatus =
   'idle' | 'connecting' | 'waking' | 'connected' | 'reconnecting' | 'disconnected' | 'error';
 
 export interface Vector2 {
   x: number;
   y: number;
+}
+
+export type RecapOutcome = 'hit' | 'miss' | 'cancelled';
+
+export interface RecapEntry {
+  shotId: string;
+  orderIndex: number;
+  shooterId: string;
+  outcome: RecapOutcome;
+  targetId: string | null;
+  targetHeartsRemaining: number | null;
+  fatal: boolean;
+  resolvedAtServerMs: number;
 }
 
 export interface PublicPlayerState {
@@ -32,6 +48,8 @@ export interface PublicMatchState {
   hostPlayerId: string | null;
   activeShooterId: string | null;
   firingOrder: string[];
+  nextFirstShooterId: string | null;
+  recapEntries: RecapEntry[];
   winnerPlayerId: string | null;
   players: PublicPlayerState[];
 }
@@ -47,13 +65,12 @@ export interface PrivatePlayerStateEvent {
 }
 
 export interface PrivateSonarSnapshotEvent {
-  type: 'private_sonar';
+  type: 'private_sonar_snapshot';
   snapshotId: string;
   detectedPlayerId: string;
   position: Vector2;
   detectedAtServerMs: number;
   expiresAtServerMs: number;
-  sweepAngleRad: number;
 }
 
 export interface ShotResolutionEvent {
