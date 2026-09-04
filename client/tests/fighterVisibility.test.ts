@@ -5,6 +5,11 @@ import { selectVisibleFighters } from '../src/game-three/renderers/fighterVisibi
 const players: PublicPlayerState[] = [
   {
     playerId: 'local',
+    inCurrentRoster: true,
+    readyForNextMatch: false,
+    rivalryWins: 0,
+    resultStats: null,
+    award: null,
     displayName: 'Local',
     role: 'host',
     hearts: 2,
@@ -16,6 +21,11 @@ const players: PublicPlayerState[] = [
   },
   {
     playerId: 'opponent',
+    inCurrentRoster: true,
+    readyForNextMatch: false,
+    rivalryWins: 0,
+    resultStats: null,
+    award: null,
     displayName: 'Opponent',
     role: 'player',
     hearts: 2,
@@ -28,6 +38,34 @@ const players: PublicPlayerState[] = [
 ];
 
 describe('Three.js fighter visibility', () => {
+  it.each(['lobby', 'countdown', 'echo_hunt', 'final_echo', 'results'] as const)(
+    'never uses public opponent coordinates in Echo %s',
+    (phase) => {
+      const visible = selectVisibleFighters({
+        mode: 'echo_hunt',
+        phase,
+        localPlayerId: 'local',
+        localPosition: { x: 1, y: 2 },
+        localAimAngleRad: 0,
+        localMoving: false,
+        activeShooterId: null,
+        players,
+      });
+      expect(visible.map((fighter) => fighter.playerId)).toEqual(['local']);
+      expect(
+        selectVisibleFighters({
+          mode: 'echo_hunt',
+          phase,
+          localPlayerId: 'watcher',
+          localPosition: null,
+          localAimAngleRad: 0,
+          localMoving: false,
+          activeShooterId: null,
+          players,
+        }),
+      ).toEqual([]);
+    },
+  );
   it('uses only private local state during hidden phases', () => {
     const visible = selectVisibleFighters({
       phase: 'hunt',

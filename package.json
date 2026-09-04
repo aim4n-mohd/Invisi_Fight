@@ -19,6 +19,8 @@
     "test": "vitest --run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "test:e2e:classic": "playwright test --grep @classic",
+    "test:e2e:echo": "playwright test --grep @echo",
     "test:e2e:chromium": "playwright test --project=chromium",
     "ci": "pnpm lint && pnpm typecheck && pnpm test && pnpm build"
   },

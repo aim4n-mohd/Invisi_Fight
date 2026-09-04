@@ -1,5 +1,6 @@
 import { createStore } from 'zustand/vanilla';
 import { z } from 'zod';
+import type { GameMode } from '@invisi-fight/shared';
 
 const SESSION_KEY = 'invisiFight.roomSession';
 const NAME_KEY = 'invisiFight.displayName';
@@ -10,6 +11,7 @@ export interface RoomSession {
   reconnectToken: string;
   roomId: string;
   roomCode: string;
+  mode: GameMode;
 }
 
 export interface SessionState {
@@ -26,6 +28,7 @@ const roomSessionSchema = z.object({
   reconnectToken: z.string().min(1),
   roomId: z.string().min(1),
   roomCode: z.string().regex(/^[A-Z2-9]{6}$/),
+  mode: z.enum(['echo_hunt', 'classic']).default('classic'),
 });
 
 export function parseRoomSession(value: string | null): RoomSession | null {

@@ -37,6 +37,12 @@ describe('privateSnapshotStore', () => {
       sequence: 3,
     });
     expect(privateSnapshotStore.getState().playerState?.position).toEqual({ x: 80, y: 90 });
+    privateSnapshotStore.getState().applyPlayerState({
+      ...newer,
+      position: { x: 85, y: 90 },
+      serverTimeMs: 2_100,
+    });
+    expect(privateSnapshotStore.getState().playerState?.position).toEqual({ x: 85, y: 90 });
   });
 
   it('predicts a local pulse and reconciles it to accepted server timing', () => {

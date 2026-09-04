@@ -11,7 +11,7 @@ export class FighterRenderer {
     scene.add(this.object);
   }
 
-  sync(states: readonly VisibleFighterState[], elapsedSeconds: number): void {
+  sync(states: readonly VisibleFighterState[], elapsedSeconds: number, scale = 1): void {
     const visibleIds = new Set(states.map((state) => state.playerId));
     this.#fighters.forEach((fighter, playerId) => {
       if (visibleIds.has(playerId)) return;
@@ -29,6 +29,7 @@ export class FighterRenderer {
         this.object.add(fighter.object);
       }
       fighter.setPosition(state.position);
+      fighter.object.scale.setScalar(scale);
       fighter.setAimAngle(state.aimAngleRad);
       fighter.setMoving(state.moving);
       fighter.setAppearance({ active: state.active, alive: state.alive, hit: state.hit });

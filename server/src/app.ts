@@ -54,7 +54,7 @@ export function createGameServer(httpServer: HttpServer, environment: ServerEnvi
     .define('invisi_fight', InvisiFightRoom, {
       reconnectGraceMs: environment.MATCH_RECONNECT_GRACE_MS,
     })
-    .filterBy(['roomCode']);
+    .filterBy(['roomCode', 'mode']);
   return gameServer;
 }
 

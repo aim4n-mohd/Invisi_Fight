@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { GAMEPLAY_CONFIG, NETWORK_TICK_MS } from '@invisi-fight/shared';
 import { CLIENT_CONFIG } from '../../config/clientConfig.js';
 import { SonarPingAudio } from '../../audio/SonarPingAudio.js';
+import { gameAudio } from '../../audio/GameAudio.js';
 import { PHASER_THEME } from '../../ui/theme.js';
 import { roomClient } from '../../network/colyseusClient.js';
 import { matchViewStore } from '../../state/matchViewStore.js';
@@ -33,6 +34,7 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   create(): void {
+    const releaseAudio = gameAudio.enterArena();
     this.cameras.main.setBackgroundColor(PHASER_THEME.arenaBackground);
     const graphics = this.add.graphics();
     graphics.lineStyle(1, PHASER_THEME.arenaGrid, 0.55);
@@ -48,12 +50,14 @@ export class ArenaScene extends Phaser.Scene {
     this.#aimSystem = new AimRenderSystem(this);
     this.#effectsSystem = new EffectsSystem(this, CLIENT_CONFIG.audioEnabled);
     this.input.once('pointerdown', () => {
+      gameAudio.unlock();
       if (this.sound.locked) void this.sound.unlock();
     });
     this.input.on('pointerdown', this.#onPointerDown);
     this.input.on('pointermove', this.#onPointerMove);
-    this.#movement = new KeyboardMovementController();
+    this.#movement = new KeyboardMovementController(window, () => roomClient.stopInput());
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      releaseAudio();
       this.#movement?.destroy();
       this.#movement = null;
       this.#sonarPing?.dispose();

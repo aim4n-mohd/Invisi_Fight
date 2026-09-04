@@ -1,4 +1,4 @@
-import type { MatchPhase, PublicPlayerState, Vector2 } from '@invisi-fight/shared';
+import type { GameMode, MatchPhase, PublicPlayerState, Vector2 } from '@invisi-fight/shared';
 
 export interface VisibleFighterState {
   playerId: string;
@@ -12,6 +12,7 @@ export interface VisibleFighterState {
 }
 
 interface FighterVisibilityInput {
+  mode?: GameMode;
   phase: MatchPhase;
   localPlayerId: string | undefined;
   localPosition: Vector2 | null;
@@ -23,7 +24,7 @@ interface FighterVisibilityInput {
 }
 
 export function selectVisibleFighters(input: FighterVisibilityInput): VisibleFighterState[] {
-  if (input.phase === 'hunt' || input.phase === 'commit') {
+  if (input.mode === 'echo_hunt' || input.phase === 'hunt' || input.phase === 'commit') {
     if (!input.localPlayerId || !input.localPosition) return [];
     const local = input.players.find((player) => player.playerId === input.localPlayerId);
     if (!local?.alive || local.role === 'spectator') return [];

@@ -95,6 +95,7 @@ describe('InvisiFightRoom lifecycle', () => {
 
   it('creates, joins, starts, assigns a late spectator, and reconnects identity', async () => {
     const hostRoom = await client.create<LifecycleWireState>('invisi_fight', {
+      mode: 'classic',
       playerName: 'Host',
     });
     rooms.push(hostRoom);
@@ -107,6 +108,7 @@ describe('InvisiFightRoom lifecycle', () => {
     expect(hostRoom.state.players.get(hostSession.playerId)?.role).toBe('host');
 
     const guestRoom = await client.join<LifecycleWireState>('invisi_fight', {
+      mode: 'classic',
       playerName: 'Guest',
       roomCode: hostRoom.state.roomCode,
     });
@@ -121,6 +123,7 @@ describe('InvisiFightRoom lifecycle', () => {
     expect(guestRoom.state.phase).toBe('hunt');
 
     const lateRoom = await client.join<LifecycleWireState>('invisi_fight', {
+      mode: 'classic',
       playerName: 'Late',
       roomCode: hostRoom.state.roomCode,
     });
@@ -143,6 +146,7 @@ describe('InvisiFightRoom lifecycle', () => {
     );
 
     const replacementRoom = await client.joinById<LifecycleWireState>(restoredSession.roomId, {
+      mode: 'classic',
       playerName: 'Guest',
       sessionToken: restoredSession.sessionToken,
     });
@@ -157,6 +161,7 @@ describe('InvisiFightRoom lifecycle', () => {
 
   it('removes a player who deliberately leaves the lobby', async () => {
     const hostRoom = await client.create<LifecycleWireState>('invisi_fight', {
+      mode: 'classic',
       playerName: 'LobbyHost',
     });
     rooms.push(hostRoom);
@@ -165,6 +170,7 @@ describe('InvisiFightRoom lifecycle', () => {
     await waitFor(() => Boolean(hostRoom.state.players.get(hostSession.playerId)));
 
     const guestRoom = await client.join<LifecycleWireState>('invisi_fight', {
+      mode: 'classic',
       playerName: 'LobbyGuest',
       roomCode: hostRoom.state.roomCode,
     });
@@ -179,12 +185,14 @@ describe('InvisiFightRoom lifecycle', () => {
 
   it('ends an active match when a departed player leaves one fighter standing', async () => {
     const hostRoom = await client.create<LifecycleWireState>('invisi_fight', {
+      mode: 'classic',
       playerName: 'WinningHost',
     });
     rooms.push(hostRoom);
     const hostSession = await sessionFor(hostRoom);
 
     const guestRoom = await client.join<LifecycleWireState>('invisi_fight', {
+      mode: 'classic',
       playerName: 'DepartingGuest',
       roomCode: hostRoom.state.roomCode,
     });
@@ -200,6 +208,7 @@ describe('InvisiFightRoom lifecycle', () => {
 
   it('applies a valid movement message to the authoritative private position', async () => {
     const hostRoom = await client.create<LifecycleWireState>('invisi_fight', {
+      mode: 'classic',
       playerName: 'MovingHost',
     });
     rooms.push(hostRoom);
@@ -210,6 +219,7 @@ describe('InvisiFightRoom lifecycle', () => {
     });
 
     const guestRoom = await client.join<LifecycleWireState>('invisi_fight', {
+      mode: 'classic',
       playerName: 'StillGuest',
       roomCode: hostRoom.state.roomCode,
     });
@@ -242,6 +252,7 @@ describe('InvisiFightRoom lifecycle', () => {
     const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => serverNow);
     try {
       const hostRoom = await client.create<LifecycleWireState>('invisi_fight', {
+        mode: 'classic',
         playerName: 'CommitHost',
       });
       rooms.push(hostRoom);
@@ -252,6 +263,7 @@ describe('InvisiFightRoom lifecycle', () => {
       });
 
       const guestRoom = await client.join<LifecycleWireState>('invisi_fight', {
+        mode: 'classic',
         playerName: 'CommitGuest',
         roomCode: hostRoom.state.roomCode,
       });
@@ -291,6 +303,7 @@ describe('InvisiFightRoom lifecycle', () => {
 
   it('routes exact sonar detections privately and approximate emissions to opponents', async () => {
     const hostRoom = await client.create<LifecycleWireState>('invisi_fight', {
+      mode: 'classic',
       playerName: 'ScannerHost',
     });
     rooms.push(hostRoom);
@@ -306,6 +319,7 @@ describe('InvisiFightRoom lifecycle', () => {
     hostRoom.onMessage('private:state', () => undefined);
 
     const guestRoom = await client.join<LifecycleWireState>('invisi_fight', {
+      mode: 'classic',
       playerName: 'PulseOpponent',
       roomCode: hostRoom.state.roomCode,
     });
@@ -325,6 +339,7 @@ describe('InvisiFightRoom lifecycle', () => {
     await waitFor(() => hostRoom.state.phase === 'hunt');
 
     const spectatorRoom = await client.join<LifecycleWireState>('invisi_fight', {
+      mode: 'classic',
       playerName: 'PulseSpectator',
       roomCode: hostRoom.state.roomCode,
     });
@@ -410,6 +425,7 @@ describe('InvisiFightRoom lifecycle', () => {
     const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => serverNow);
     try {
       const hostRoom = await client.create<LifecycleWireState>('invisi_fight', {
+        mode: 'classic',
         playerName: 'LockHost',
       });
       rooms.push(hostRoom);
@@ -422,6 +438,7 @@ describe('InvisiFightRoom lifecycle', () => {
       hostRoom.onMessage('match:shot', () => undefined);
 
       const guestRoom = await client.join<LifecycleWireState>('invisi_fight', {
+        mode: 'classic',
         playerName: 'AutoLockGuest',
         roomCode: hostRoom.state.roomCode,
       });
@@ -465,6 +482,7 @@ describe('InvisiFightRoom lifecycle', () => {
       );
 
       const spectatorRoom = await client.join<LifecycleWireState>('invisi_fight', {
+        mode: 'classic',
         playerName: 'LockSpectator',
         roomCode: hostRoom.state.roomCode,
       });
@@ -557,6 +575,7 @@ describe('InvisiFightRoom lifecycle', () => {
     const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => serverNow);
     try {
       const hostRoom = await client.create<LifecycleWireState>('invisi_fight', {
+        mode: 'classic',
         playerName: 'TwoHeartHost',
       });
       rooms.push(hostRoom);
@@ -566,6 +585,7 @@ describe('InvisiFightRoom lifecycle', () => {
       hostRoom.onMessage('match:shot', () => undefined);
 
       const guestRoom = await client.join<LifecycleWireState>('invisi_fight', {
+        mode: 'classic',
         playerName: 'TwoHeartGuest',
         roomCode: hostRoom.state.roomCode,
       });
@@ -651,6 +671,7 @@ describe('InvisiFightRoom lifecycle', () => {
     const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => serverNow);
     try {
       const hostRoom = await client.create<LifecycleWireState>('invisi_fight', {
+        mode: 'classic',
         playerName: 'PacingHost',
       });
       rooms.push(hostRoom);
@@ -661,6 +682,7 @@ describe('InvisiFightRoom lifecycle', () => {
       hostRoom.onMessage<ShotResolutionEvent>('match:shot', (event) => shots.push(event));
 
       const guestRoom = await client.join<LifecycleWireState>('invisi_fight', {
+        mode: 'classic',
         playerName: 'PacingGuest',
         roomCode: hostRoom.state.roomCode,
       });
@@ -701,12 +723,14 @@ describe('InvisiFightRoom lifecycle', () => {
 
   it('keeps a player restored by signed-session fallback after the transport grace expires', async () => {
     const hostRoom = await client.create<LifecycleWireState>('invisi_fight', {
+      mode: 'classic',
       playerName: 'FallbackHost',
     });
     rooms.push(hostRoom);
     await sessionFor(hostRoom);
 
     const guestRoom = await client.join<LifecycleWireState>('invisi_fight', {
+      mode: 'classic',
       playerName: 'FallbackGuest',
       roomCode: hostRoom.state.roomCode,
     });
@@ -715,6 +739,7 @@ describe('InvisiFightRoom lifecycle', () => {
     await guestRoom.leave(false);
 
     const replacementRoom = await client.joinById<LifecycleWireState>(guestSession.roomId, {
+      mode: 'classic',
       playerName: 'FallbackGuest',
       sessionToken: guestSession.sessionToken,
     });
@@ -731,6 +756,7 @@ describe('InvisiFightRoom lifecycle', () => {
     const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => serverNow);
     try {
       const hostRoom = await client.create<LifecycleWireState>('invisi_fight', {
+        mode: 'classic',
         playerName: 'PhaseHost',
       });
       rooms.push(hostRoom);
@@ -740,6 +766,7 @@ describe('InvisiFightRoom lifecycle', () => {
       const hostSession = await sessionFor(hostRoom);
 
       const guestRoom = await client.join<LifecycleWireState>('invisi_fight', {
+        mode: 'classic',
         playerName: 'PhaseGuest',
         roomCode: hostRoom.state.roomCode,
       });

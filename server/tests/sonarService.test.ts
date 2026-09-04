@@ -18,6 +18,28 @@ function player(
 }
 
 describe('SonarService', () => {
+  it('uses the Echo policy without inheriting Classic snapshot or quantization tuning', () => {
+    const service = new SonarService();
+    const result = service.activate(
+      [player('a', 101, 235), player('b', 920, 510)],
+      'a',
+      'echo_hunt',
+      1_000,
+      {
+        allowedPhases: ['echo_hunt'],
+        cooldownMs: 6_000,
+        radiusPx: 1_100,
+        snapshotDurationMs: 1_250,
+        originQuantizationPx: 100,
+      },
+    );
+    expect(result).toMatchObject({
+      accepted: true,
+      readyAtServerMs: 7_000,
+      approximateOrigin: { x: 100, y: 200 },
+      detections: [{ targetId: 'b', expiresAtServerMs: 2_250 }],
+    });
+  });
   it('should accept a Hunt pulse and return fixed snapshots inside the radial boundary', () => {
     const service = new SonarService();
     const detector = player('detector', 101, 235);

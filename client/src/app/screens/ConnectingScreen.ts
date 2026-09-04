@@ -7,8 +7,8 @@ export function ConnectingScreen(): HTMLElement {
   const token = sessionStore.getState().roomSession?.reconnectToken;
   const screen = screenFrame(
     'Connection status',
-    'Waking multiplayer server',
-    'The authoritative server may need a short moment after inactivity. Your room details stay in this tab while we retry.',
+    'Connecting to your room',
+    'Opening the multiplayer connection. A sleeping server may take a moment to start.',
   );
   const panel = document.createElement('div');
   panel.className = 'panel cluster';

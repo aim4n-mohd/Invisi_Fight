@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import { GAMEPLAY_CONFIG } from '../config/gameplayConfig.js';
-import type { PlayerRole } from './match.js';
+import { ECHO_GAMEPLAY_CONFIG, GAMEPLAY_CONFIG } from '../config/gameplayConfig.js';
+import type { GameMode, PlayerRole } from './match.js';
 
 export const displayNameSchema = z
   .string()
@@ -33,15 +33,89 @@ export const roomJoinOptionsSchema = z.object({
   playerName: displayNameSchema,
   roomCode: roomCodeSchema.optional(),
   sessionToken: sessionTokenSchema.optional(),
+  mode: z.enum(['echo_hunt', 'classic']).default('echo_hunt'),
 });
 
-export const playerInputSchema = z.object({
-  moveX: z.number().min(-1).max(1),
-  moveY: z.number().min(-1).max(1),
-  aimAngleRad: z.number().finite(),
+export const playerInputSchema = z
+  .object({
+    moveX: z.number().min(-1).max(1),
+    moveY: z.number().min(-1).max(1),
+    aimAngleRad: z.number().finite(),
+    sequence: z.number().int().nonnegative(),
+    clientTimeMs: timestampSchema,
+    running: z.boolean().optional().default(false),
+  })
+  .strict();
+
+const actionInputBase = {
+  sessionToken: sessionTokenSchema,
   sequence: z.number().int().nonnegative(),
   clientTimeMs: timestampSchema,
-});
+};
+
+export const fireInputSchema = z
+  .object({ ...actionInputBase, aimAngleRad: z.number().finite() })
+  .strict();
+export const decoyInputSchema = z
+  .object({ ...actionInputBase, aimAngleRad: z.number().finite() })
+  .strict();
+export const nextMatchInputSchema = z.object({ ...actionInputBase, ready: z.boolean() }).strict();
+
+export const publicSoundCueEventSchema = z
+  .object({
+    type: z.literal('sound_cue'),
+    cueId: z.string().min(1).max(128),
+    profile: z.enum(['walk', 'run', 'reload', 'final_echo']),
+    approximatePosition: vector2Schema,
+    intensity: z.number().min(0).max(1),
+    emittedAtServerMs: timestampSchema,
+    expiresAtServerMs: timestampSchema,
+  })
+  .strict();
+
+export const echoActionRejectionReasonSchema = z.enum([
+  'wrong_mode',
+  'wrong_phase',
+  'cooldown',
+  'reloading',
+  'stale_sequence',
+  'unavailable_decoy',
+  'eliminated',
+  'not_active',
+  'invalid_request',
+]);
+
+export const privateEchoNoiseEventSchema = z
+  .object({
+    type: z.literal('echo_noise'),
+    noiseId: z.string().min(1).max(128),
+    intensity: z.number().min(0).max(1),
+    emittedAtServerMs: timestampSchema,
+  })
+  .strict();
+export type PrivateEchoNoiseEvent = z.infer<typeof privateEchoNoiseEventSchema>;
+
+const echoActionStatusBase = {
+  type: z.literal('echo_action_status'),
+  action: z.enum(['fire', 'reload', 'sonar', 'decoy', 'next_match']),
+  requestSequence: z.number().int().nonnegative(),
+  fireReadyAtServerMs: timestampSchema,
+  ammo: z.number().int().min(0).max(ECHO_GAMEPLAY_CONFIG.magazineSize),
+  reloadEndsAtServerMs: timestampSchema,
+  sonarReadyAtServerMs: timestampSchema,
+  decoyAvailable: z.boolean(),
+  serverTimeMs: timestampSchema,
+};
+export const echoActionStatusEventSchema = z.discriminatedUnion('accepted', [
+  z.object({ ...echoActionStatusBase, accepted: z.literal(true) }).strict(),
+  z
+    .object({
+      ...echoActionStatusBase,
+      accepted: z.literal(false),
+      reason: echoActionRejectionReasonSchema,
+    })
+    .strict(),
+]);
 
 export const triggerSonarSchema = z
   .object({
@@ -137,6 +211,12 @@ export type PublicSonarEmissionEvent = z.infer<typeof publicSonarEmissionEventSc
 export type LockShotMessage = z.infer<typeof lockShotSchema>;
 export type ShotLockStatusEvent = z.infer<typeof shotLockStatusEventSchema>;
 export type AcceptedShotLockStatusEvent = Extract<ShotLockStatusEvent, { accepted: true }>;
+export type FireInputMessage = z.infer<typeof fireInputSchema>;
+export type DecoyInputMessage = z.infer<typeof decoyInputSchema>;
+export type NextMatchInputMessage = z.infer<typeof nextMatchInputSchema>;
+export type PublicSoundCueEvent = z.infer<typeof publicSoundCueEventSchema>;
+export type EchoActionStatusEvent = z.infer<typeof echoActionStatusEventSchema>;
+export type EchoActionRejectionReason = z.infer<typeof echoActionRejectionReasonSchema>;
 
 export interface SessionReadyEvent {
   type: 'session_ready';
@@ -144,9 +224,16 @@ export interface SessionReadyEvent {
   playerId: string;
   roomId: string;
   roomCode: string;
+  mode: GameMode;
   role: PlayerRole;
   isHost: boolean;
   sonarReadyAtServerMs: number;
+  fireReadyAtServerMs?: number;
+  ammo?: number;
+  reloadEndsAtServerMs?: number;
+  decoyAvailable?: boolean;
+  nextMatchSequence?: number;
+  actionSequences?: { fire: number; decoy: number; input: number; sonar: number };
   shotLockStatus: AcceptedShotLockStatusEvent | null;
   reconnectToken?: string;
   serverTimeMs: number;

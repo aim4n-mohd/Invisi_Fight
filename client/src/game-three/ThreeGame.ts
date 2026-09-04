@@ -8,10 +8,21 @@ import {
   SRGBColorSpace,
   WebGLRenderer,
 } from 'three';
-import { GAMEPLAY_CONFIG, NETWORK_TICK_MS } from '@invisi-fight/shared';
+import {
+  ECHO_GAMEPLAY_CONFIG,
+  GAMEPLAY_CONFIG,
+  NETWORK_TICK_MS,
+  type MatchPhase,
+} from '@invisi-fight/shared';
 import { CLIENT_CONFIG } from '../config/clientConfig.js';
 import { SonarPingAudio } from '../audio/SonarPingAudio.js';
-import { KeyboardMovementController } from '../game/input/KeyboardMovementController.js';
+import {
+  gameplayInputBlocked,
+  KeyboardMovementController,
+} from '../game/input/KeyboardMovementController.js';
+import { echoStore } from '../state/echoStore.js';
+import { gameAudio } from '../audio/GameAudio.js';
+import { EchoEffects } from './renderers/EchoEffects.js';
 import { InterpolationSystem } from '../game/systems/InterpolationSystem.js';
 import { roomClient } from '../network/colyseusClient.js';
 import { serverClock } from '../network/serverClock.js';
@@ -28,6 +39,14 @@ import { selectVisibleFighters } from './renderers/fighterVisibility.js';
 import { ShotEffects } from './renderers/ShotEffects.js';
 import { SonarRenderer } from './renderers/SonarRenderer.js';
 
+export function shouldResetEchoInput(
+  previousRound: number,
+  roundNumber: number,
+  phase: MatchPhase,
+): boolean {
+  return previousRound !== roundNumber || phase === 'results';
+}
+
 export class ThreeGame {
   readonly #parent: HTMLElement;
   readonly #scene = new Scene();
@@ -39,7 +58,14 @@ export class ThreeGame {
   readonly #sonarPing = new SonarPingAudio(CLIENT_CONFIG.audioEnabled);
   readonly #aim: AimRenderer;
   readonly #shots: ShotEffects;
-  readonly #movement = new KeyboardMovementController();
+  readonly #movement = new KeyboardMovementController(window, () => roomClient.stopInput());
+  readonly #echoEffects: EchoEffects;
+  readonly #releaseAudio: () => void;
+  #roundNumber = -1;
+  #lastPhase = '';
+  #lastHitShotId = '';
+  #hitStopUntil = 0;
+  #visualSeconds = 0;
   readonly #interpolation = new InterpolationSystem();
   readonly #aimProjector = new GroundAimProjector();
   readonly #resizeObserver: ResizeObserver;
@@ -76,14 +102,21 @@ export class ThreeGame {
     this.#sonar = new SonarRenderer(this.#scene);
     this.#aim = new AimRenderer(this.#scene);
     this.#shots = new ShotEffects(this.#scene, CLIENT_CONFIG.audioEnabled);
+    this.#echoEffects = new EchoEffects(this.#scene);
+    this.#releaseAudio = gameAudio.enterArena();
     this.#addLighting();
 
     this.#renderer.domElement.addEventListener('pointermove', this.#onPointerMove);
     this.#renderer.domElement.addEventListener('pointerdown', this.#onPointerDown);
+    this.#renderer.domElement.addEventListener('contextmenu', this.#onContextMenu);
     this.#renderer.domElement.addEventListener('webglcontextlost', this.#onContextLost);
     this.#renderer.domElement.addEventListener('webglcontextrestored', this.#onContextRestored);
     this.#resizeObserver = new ResizeObserver(() => this.#resize());
     this.#resizeObserver.observe(parent);
+    const overlay = parent.parentElement?.querySelector<HTMLElement>('.echo-hud');
+    if (overlay) this.#resizeObserver.observe(overlay);
+    const header = parent.parentElement?.querySelector<HTMLElement>('.echo-topbar');
+    if (header) this.#resizeObserver.observe(header);
     this.#resize();
     this.#renderer.setAnimationLoop(this.#frame);
   }
@@ -95,6 +128,7 @@ export class ThreeGame {
     this.#resizeObserver.disconnect();
     this.#renderer.domElement.removeEventListener('pointermove', this.#onPointerMove);
     this.#renderer.domElement.removeEventListener('pointerdown', this.#onPointerDown);
+    this.#renderer.domElement.removeEventListener('contextmenu', this.#onContextMenu);
     this.#renderer.domElement.removeEventListener('webglcontextlost', this.#onContextLost);
     this.#renderer.domElement.removeEventListener('webglcontextrestored', this.#onContextRestored);
     this.#movement.destroy();
@@ -104,6 +138,8 @@ export class ThreeGame {
     this.#sonarPing.dispose();
     this.#aim.dispose();
     this.#shots.dispose();
+    this.#echoEffects.clear();
+    this.#releaseAudio();
     this.#renderer.dispose();
     this.#renderer.forceContextLoss();
     this.#renderer.domElement.remove();
@@ -114,6 +150,15 @@ export class ThreeGame {
     const deltaMs = Math.min(100, Math.max(0, timeMs - this.#lastFrameAtMs));
     this.#lastFrameAtMs = timeMs;
     const match = matchViewStore.getState();
+    const echo = match.mode === 'echo_hunt';
+    if (echo && (this.#roundNumber !== match.roundNumber || this.#lastPhase !== match.phase)) {
+      if (shouldResetEchoInput(this.#roundNumber, match.roundNumber, match.phase))
+        this.#movement.reset();
+      if (this.#roundNumber !== match.roundNumber) this.#interpolation.reset();
+      this.#roundNumber = match.roundNumber;
+      this.#lastPhase = match.phase;
+      this.#hitStopUntil = 0;
+    }
     const privateState = privateSnapshotStore.getState();
     const localPlayerId = sessionStore.getState().roomSession?.playerId;
     const localPlayer = match.players.find((player) => player.playerId === localPlayerId);
@@ -121,7 +166,9 @@ export class ThreeGame {
 
     if (canPlay && privateState.playerState) {
       this.#interpolation.setTarget(privateState.playerState.position);
-      this.#localPosition = this.#interpolation.update(deltaMs);
+      this.#localPosition = this.#interpolation.update(
+        echo && serverClock.now() < this.#hitStopUntil ? 0 : deltaMs,
+      );
       if (!this.#pointer) this.#localAimAngleRad = privateState.playerState.aimAngleRad;
     } else {
       this.#localPosition = null;
@@ -138,9 +185,10 @@ export class ThreeGame {
     matchViewStore.getState().pruneSonarEmissions(nowMs);
     const movement = privateState.playerState?.velocity;
     const localMoving = Boolean(
-      match.phase === 'hunt' && movement && Math.hypot(movement.x, movement.y) > 1,
+      (echo || match.phase === 'hunt') && movement && Math.hypot(movement.x, movement.y) > 1,
     );
     const visibleFighters = selectVisibleFighters({
+      mode: match.mode,
       phase: match.phase,
       localPlayerId,
       localPosition: this.#localPosition,
@@ -155,23 +203,58 @@ export class ThreeGame {
       players: match.players,
     });
     this.#arena.setPhase(match.phase);
-    this.#fighters.sync(visibleFighters, timeMs / 1_000);
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (echo && !reduced) {
+      const hit = [...match.shotEvents]
+        .reverse()
+        .find(
+          (shot) =>
+            shot.targetId &&
+            nowMs - shot.resolvedAtServerMs < ECHO_GAMEPLAY_CONFIG.shotEffectLifetimeMs,
+        );
+      if (hit && hit.shotId !== this.#lastHitShotId) {
+        this.#lastHitShotId = hit.shotId;
+        this.#hitStopUntil = nowMs + ECHO_GAMEPLAY_CONFIG.hitStopDurationMs;
+      }
+      if (nowMs >= this.#hitStopUntil) this.#visualSeconds += deltaMs / 1_000;
+      const prediction = echoStore.getState().predictions.at(-1);
+      const kickAge = prediction ? nowMs - prediction.createdAtServerMs : Infinity;
+      this.#cameraController.setPresentationKick(
+        ECHO_GAMEPLAY_CONFIG.cameraKickWorldUnits *
+          Math.max(0, 1 - kickAge / ECHO_GAMEPLAY_CONFIG.cameraKickDurationMs),
+      );
+    } else this.#cameraController.setPresentationKick(0);
+    this.#fighters.sync(
+      visibleFighters,
+      echo ? (reduced ? 0 : this.#visualSeconds) : timeMs / 1_000,
+      echo ? ECHO_GAMEPLAY_CONFIG.fighterVisualScale : 1,
+    );
     this.#sonar.sync(
-      privateState.localSonarPulse,
-      privateState.detections,
+      echo && !canPlay ? null : privateState.localSonarPulse,
+      echo && !canPlay ? [] : privateState.detections,
       match.sonarEmissions,
       nowMs,
+      {
+        fighterScale: echo ? ECHO_GAMEPLAY_CONFIG.fighterVisualScale : 1,
+        reducedMotion: echo && reduced,
+      },
     );
-    this.#sonarPing.sync(privateState.localSonarPulse);
+    if (!echo) this.#sonarPing.sync(privateState.localSonarPulse);
     this.#aim.sync(
-      match.phase,
+      echo && ['lobby', 'countdown', 'echo_hunt', 'final_echo'].includes(match.phase)
+        ? 'hunt'
+        : match.phase,
       this.#localPosition,
       this.#localAimAngleRad,
       match.players,
       privateState.shotLockStatus,
       match.activeShooterId,
     );
-    this.#shots.sync(match.lastShot, nowMs);
+    if (echo) {
+      matchViewStore.getState().pruneEvents(nowMs);
+      echoStore.getState().prune(nowMs);
+      this.#echoEffects.sync(nowMs);
+    } else this.#shots.sync(match.lastShot, nowMs);
     this.#syncDiagnostics(match.phase, privateState);
     this.#renderer.render(this.#scene, this.#cameraController.camera);
     this.#parent.dataset.threeDrawCalls = String(this.#renderer.info.render.calls);
@@ -182,16 +265,27 @@ export class ThreeGame {
   };
 
   #sendInputIfDue(phase: string, canPlay: boolean): void {
-    if ((phase !== 'hunt' && phase !== 'commit') || !canPlay) return;
+    const echo = matchViewStore.getState().mode === 'echo_hunt';
+    if (
+      !(echo
+        ? ['lobby', 'countdown', 'echo_hunt', 'final_echo'].includes(phase)
+        : ['hunt', 'commit'].includes(phase)) ||
+      !canPlay
+    )
+      return;
     const nowMs = performance.now();
     if (nowMs - this.#lastInputAtMs < NETWORK_TICK_MS) return;
     this.#lastInputAtMs = nowMs;
-    const movement = phase === 'hunt' ? this.#movement.movement() : { x: 0, y: 0 };
+    const movement =
+      !gameplayInputBlocked() && (echo || phase === 'hunt')
+        ? this.#movement.movement()
+        : { x: 0, y: 0 };
     if (movement.x !== 0 || movement.y !== 0) onboardingStore.getState().complete('move');
     this.#inputSequence += 1;
     roomClient.sendInput({
       moveX: movement.x,
       moveY: movement.y,
+      running: echo && this.#movement.running(),
       aimAngleRad: this.#localAimAngleRad,
       sequence: this.#inputSequence,
       clientTimeMs: performance.now(),
@@ -242,7 +336,15 @@ export class ThreeGame {
     const width = Math.max(1, this.#parent.clientWidth);
     const height = Math.max(1, this.#parent.clientHeight);
     this.#renderer.setSize(width, height, false);
-    this.#cameraController.resize(width, height);
+    const overlay = this.#parent.parentElement?.querySelector<HTMLElement>('.echo-hud');
+    const header = this.#parent.parentElement?.querySelector<HTMLElement>('.echo-topbar');
+    this.#cameraController.resize(
+      width,
+      height,
+      overlay?.getBoundingClientRect().height ?? 0,
+      header?.getBoundingClientRect().height ?? 0,
+      Boolean(overlay),
+    );
   }
 
   #addLighting(): void {
@@ -299,10 +401,22 @@ export class ThreeGame {
   };
 
   readonly #onPointerDown = (event: PointerEvent): void => {
-    if (event.button !== 0) return;
+    if (document.querySelector('[aria-modal="true"]')) return;
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    gameAudio.unlock();
+    const echo = matchViewStore.getState().mode === 'echo_hunt';
+    if (event.button !== 0 && !(echo && event.button === 2)) return;
     this.#pointer = { x: event.clientX, y: event.clientY };
     this.#updatePointerAim();
-    if (roomClient.lockShot(this.#localAimAngleRad)) onboardingStore.getState().complete('lock');
+    if (echo) {
+      if (event.button === 2) roomClient.sendDecoy(this.#localAimAngleRad);
+      else roomClient.sendFire(this.#localAimAngleRad);
+    } else if (roomClient.lockShot(this.#localAimAngleRad))
+      onboardingStore.getState().complete('lock');
+  };
+
+  readonly #onContextMenu = (event: Event): void => {
+    if (matchViewStore.getState().mode === 'echo_hunt') event.preventDefault();
   };
 
   readonly #onContextLost = (event: Event): void => {

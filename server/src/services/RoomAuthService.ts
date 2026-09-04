@@ -44,9 +44,11 @@ export class RoomAuthService {
     }
   }
 
-  roleForJoin(phase: MatchPhase, isFirstPlayer: boolean): PlayerRole {
+  roleForJoin(phase: MatchPhase, isFirstPlayer: boolean, activePlayerCount = 0): PlayerRole {
     if (isFirstPlayer) return 'host';
-    return phase === 'lobby' ? 'player' : 'spectator';
+    return phase === 'lobby' && activePlayerCount < GAMEPLAY_CONFIG.maxActiveFighters
+      ? 'player'
+      : 'spectator';
   }
 
   assertCanStart(role: PlayerRole, playerCount: number, phase: MatchPhase): void {

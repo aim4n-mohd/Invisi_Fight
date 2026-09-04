@@ -37,6 +37,7 @@ export class SonarRenderer {
     detections: readonly PrivateSonarSnapshotEvent[],
     emissions: readonly PublicSonarEmissionEvent[],
     nowMs: number,
+    profile = { fighterScale: 1, reducedMotion: false },
   ): void {
     const pulses: PulseState[] = [];
     if (localPulse && localPulse.expiresAtServerMs > nowMs) {
@@ -60,8 +61,8 @@ export class SonarRenderer {
         color: 0xff7a59,
       });
     });
-    this.#syncPulses(pulses, nowMs);
-    this.#syncDetections(detections, nowMs);
+    this.#syncPulses(pulses, nowMs, profile.reducedMotion);
+    this.#syncDetections(detections, nowMs, profile.fighterScale);
   }
 
   dispose(): void {
@@ -75,7 +76,7 @@ export class SonarRenderer {
     this.object.removeFromParent();
   }
 
-  #syncPulses(states: readonly PulseState[], nowMs: number): void {
+  #syncPulses(states: readonly PulseState[], nowMs: number, reducedMotion: boolean): void {
     const keys = new Set(states.map((state) => state.key));
     this.#pulses.forEach((pulse, key) => {
       if (keys.has(key)) return;
@@ -103,7 +104,7 @@ export class SonarRenderer {
         this.object.add(pulse);
       }
       const pulseProgress = progress(state.startedAtServerMs, state.expiresAtServerMs, nowMs);
-      const radius = Math.max(2, state.radius * pulseProgress);
+      const radius = Math.max(2, state.radius * (reducedMotion ? 0.75 : pulseProgress));
       const world = simulationToWorld(state.origin, 1.2);
       pulse.position.set(world.x, world.y, world.z);
       pulse.scale.setScalar(radius);
@@ -111,7 +112,11 @@ export class SonarRenderer {
     });
   }
 
-  #syncDetections(states: readonly PrivateSonarSnapshotEvent[], nowMs: number): void {
+  #syncDetections(
+    states: readonly PrivateSonarSnapshotEvent[],
+    nowMs: number,
+    fighterScale: number,
+  ): void {
     const active = states.filter((state) => state.expiresAtServerMs > nowMs);
     const keys = new Set(active.map((state) => state.snapshotId));
     this.#detections.forEach((fighter, key) => {
@@ -130,6 +135,7 @@ export class SonarRenderer {
       }
       const alpha = 1 - progress(state.detectedAtServerMs, state.expiresAtServerMs, nowMs);
       fighter.setPosition(state.position);
+      fighter.object.scale.setScalar(fighterScale);
       fighter.setAppearance({ active: false, alive: true, opacity: alpha });
     });
   }

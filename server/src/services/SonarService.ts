@@ -34,8 +34,15 @@ export interface RejectedSonarActivation {
 
 export type SonarActivation = AcceptedSonarActivation | RejectedSonarActivation;
 
-function quantize(value: number, maximum: number): number {
-  const step = GAMEPLAY_CONFIG.sonarOriginQuantizationPx;
+export interface SonarPolicy {
+  allowedPhases: readonly MatchPhase[];
+  cooldownMs: number;
+  radiusPx: number;
+  snapshotDurationMs?: number;
+  originQuantizationPx?: number;
+}
+
+function quantize(value: number, maximum: number, step: number): number {
   return Math.min(maximum, Math.max(0, Math.round(value / step) * step));
 }
 
@@ -47,9 +54,10 @@ export class SonarService {
     detectorId: string,
     phase: MatchPhase,
     serverTimeMs: number,
+    policy?: SonarPolicy,
   ): SonarActivation {
     const currentReadyAt = this.readyAt(detectorId);
-    if (phase !== 'hunt') {
+    if (!(policy?.allowedPhases ?? ['hunt']).includes(phase)) {
       return {
         accepted: false,
         reason: 'wrong_phase',
@@ -69,9 +77,9 @@ export class SonarService {
       return { accepted: false, reason: 'cooldown', readyAtServerMs: currentReadyAt };
     }
 
-    const readyAtServerMs = serverTimeMs + GAMEPLAY_CONFIG.sonarCooldownMs;
+    const readyAtServerMs = serverTimeMs + (policy?.cooldownMs ?? GAMEPLAY_CONFIG.sonarCooldownMs);
     this.#readyAtByPlayer.set(detectorId, readyAtServerMs);
-    const radiusSquared = GAMEPLAY_CONFIG.sonarPulseRadiusPx ** 2;
+    const radiusSquared = (policy?.radiusPx ?? GAMEPLAY_CONFIG.sonarPulseRadiusPx) ** 2;
     const detections = players.flatMap<SonarDetection>((target) => {
       if (!target.alive || target.spectator || target.playerId === detectorId) return [];
       const dx = target.position.x - detector.position.x;
@@ -83,7 +91,8 @@ export class SonarService {
           targetId: target.playerId,
           position: { ...target.position },
           detectedAtServerMs: serverTimeMs,
-          expiresAtServerMs: serverTimeMs + GAMEPLAY_CONFIG.sonarSnapshotDurationMs,
+          expiresAtServerMs:
+            serverTimeMs + (policy?.snapshotDurationMs ?? GAMEPLAY_CONFIG.sonarSnapshotDurationMs),
         },
       ];
     });
@@ -94,8 +103,16 @@ export class SonarService {
       activatedAtServerMs: serverTimeMs,
       readyAtServerMs,
       approximateOrigin: {
-        x: quantize(detector.position.x, GAMEPLAY_CONFIG.arenaWidth),
-        y: quantize(detector.position.y, GAMEPLAY_CONFIG.arenaHeight),
+        x: quantize(
+          detector.position.x,
+          GAMEPLAY_CONFIG.arenaWidth,
+          policy?.originQuantizationPx ?? GAMEPLAY_CONFIG.sonarOriginQuantizationPx,
+        ),
+        y: quantize(
+          detector.position.y,
+          GAMEPLAY_CONFIG.arenaHeight,
+          policy?.originQuantizationPx ?? GAMEPLAY_CONFIG.sonarOriginQuantizationPx,
+        ),
       },
       detections,
     };

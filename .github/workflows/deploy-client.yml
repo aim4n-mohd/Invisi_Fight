@@ -25,6 +25,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - uses: pnpm/action-setup@v4
         with:
           version: 11.19.0
@@ -41,9 +43,26 @@ jobs:
           VITE_SERVER_HTTP_URL: ${{ vars.VITE_SERVER_HTTP_URL }}
           VITE_SERVER_WS_URL: ${{ vars.VITE_SERVER_WS_URL }}
           VITE_BUILD_ENV: production
-          VITE_BUILD_COMMIT_SHA: ${{ github.sha }}
+          VITE_BUILD_COMMIT_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
           VITE_ENABLE_DEBUG_OVERLAY: 'false'
           VITE_ENABLE_AUDIO: 'true'
+      - name: Wait for matching authoritative server
+        env:
+          SERVER_HTTP_URL: ${{ vars.VITE_SERVER_HTTP_URL || 'https://invisi-fight-server.onrender.com' }}
+          EXPECTED_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          for attempt in $(seq 1 60); do
+            if health=$(curl --fail --silent --show-error --max-time 10 "$SERVER_HTTP_URL/healthz"); then
+              if echo "$health" | jq -e --arg sha "$EXPECTED_SHA" '.ok == true and .buildSha == $sha' > /dev/null; then
+                echo "Matching server is ready: $EXPECTED_SHA"
+                exit 0
+              fi
+            fi
+            echo "Waiting for server revision $EXPECTED_SHA ($attempt/60)"
+            sleep 10
+          done
+          echo "::error::Matching server is not ready. Client deployment withheld to prevent a protocol mismatch."
+          exit 1
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

@@ -12,7 +12,7 @@ import {
   type Scene,
 } from 'three';
 import { GAMEPLAY_CONFIG, type ShotResolutionEvent } from '@invisi-fight/shared';
-import gunshotUrl from '../../assets/audio/gunshot.wav?url';
+import { gameAudio } from '../../audio/GameAudio.js';
 import { simulationToWorld } from '../math/coordinates.js';
 
 export class ShotEffects {
@@ -34,12 +34,15 @@ export class ShotEffects {
       side: DoubleSide,
     }),
   );
-  readonly #audio: HTMLAudioElement | null;
   #lastShotId = '';
   #shownAtMs = 0;
   #hit = false;
 
-  constructor(scene: Scene, audioEnabled: boolean) {
+  constructor(
+    scene: Scene,
+    readonly audioEnabled: boolean,
+    readonly authoritativeTiming = false,
+  ) {
     this.object.name = 'shot-effects';
     this.#line.name = 'shot-tracer';
     this.#muzzle.name = 'muzzle-flash';
@@ -47,23 +50,24 @@ export class ShotEffects {
     this.#impact.rotation.x = -Math.PI / 2;
     this.object.add(this.#line, this.#muzzle, this.#impact);
     scene.add(this.object);
-    this.#audio = audioEnabled && typeof Audio !== 'undefined' ? new Audio(gunshotUrl) : null;
   }
 
-  sync(event: ShotResolutionEvent | null, nowMs: number): void {
+  sync(
+    event: ShotResolutionEvent | null,
+    nowMs: number,
+    flashAtMs?: number,
+    pending = false,
+  ): void {
     if (!event || event.cancelled) {
       this.#hide();
       return;
     }
     if (event.shotId !== this.#lastShotId) {
       this.#lastShotId = event.shotId;
-      this.#shownAtMs = nowMs;
+      this.#shownAtMs = this.authoritativeTiming ? event.resolvedAtServerMs : nowMs;
       this.#hit = Boolean(event.targetId);
       this.#setPath(event);
-      if (this.#audio) {
-        this.#audio.currentTime = 0;
-        void this.#audio.play().catch(() => undefined);
-      }
+      if (this.audioEnabled) gameAudio.play('gunshot');
     }
     const age = nowMs - this.#shownAtMs;
     if (age > GAMEPLAY_CONFIG.shotResultHoldMs) {
@@ -72,14 +76,19 @@ export class ShotEffects {
     }
     const alpha = Math.max(0, 1 - age / GAMEPLAY_CONFIG.shotResultHoldMs);
     this.#line.material.opacity = alpha;
-    this.#muzzle.material.opacity = alpha;
-    this.#muzzle.scale.setScalar(0.8 + alpha * 0.9);
-    this.#impact.material.opacity = this.#hit ? alpha : alpha * 0.55;
+    const flashAlpha =
+      flashAtMs === undefined
+        ? alpha
+        : Math.max(0, 1 - (nowMs - flashAtMs) / GAMEPLAY_CONFIG.shotResultHoldMs);
+    this.#muzzle.material.opacity = flashAlpha;
+    this.#muzzle.scale.setScalar(0.8 + flashAlpha * 0.9);
+    if (this.authoritativeTiming)
+      this.#impact.material.color.setHex(this.#hit ? 0xff5c7a : 0x8ba9bf);
+    this.#impact.material.opacity = pending ? 0 : this.#hit ? alpha : alpha * 0.55;
     this.#impact.scale.setScalar(1.2 + (1 - alpha) * 1.8);
   }
 
   dispose(): void {
-    this.#audio?.pause();
     this.#line.geometry.dispose();
     this.#line.material.dispose();
     this.#muzzle.geometry.dispose();

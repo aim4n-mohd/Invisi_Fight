@@ -4,6 +4,9 @@ export const ROOM_MESSAGES = {
   PLAYER_INPUT: 'input:player',
   TRIGGER_SONAR: 'input:sonar',
   LOCK_SHOT: 'input:lock-shot',
+  FIRE: 'input:fire',
+  DECOY: 'input:decoy',
+  NEXT_MATCH: 'input:next-match',
   START_MATCH: 'input:start',
   REPLAY_TO_LOBBY: 'input:replay',
   PRIVATE_STATE: 'private:state',
@@ -12,5 +15,7 @@ export const ROOM_MESSAGES = {
   SONAR_EMISSION: 'match:sonar-emission',
   SHOT_LOCK_STATUS: 'private:shot-lock-status',
   SHOT_RESOLVED: 'match:shot',
+  SOUND_CUE: 'match:sound-cue',
+  ECHO_ACTION_STATUS: 'private:echo-action-status',
   ERROR: 'room:error',
 } as const;

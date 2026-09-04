@@ -1,5 +1,32 @@
 import { ArraySchema, MapSchema, Schema, defineTypes } from '@colyseus/schema';
-import { GAMEPLAY_CONFIG, type MatchPhase, type PlayerRole } from '@invisi-fight/shared';
+import {
+  GAMEPLAY_CONFIG,
+  type GameMode,
+  type MatchPhase,
+  type PlayerRole,
+} from '@invisi-fight/shared';
+
+export class EchoResultStatsSchema extends Schema {
+  shots = 0;
+  hits = 0;
+  damage = 0;
+  eliminations = 0;
+  sonarDetections = 0;
+  emittedSound = 0;
+  closestMissPx = -1;
+  survivalMs = 0;
+}
+
+defineTypes(EchoResultStatsSchema, {
+  shots: 'number',
+  hits: 'number',
+  damage: 'number',
+  eliminations: 'number',
+  sonarDetections: 'number',
+  emittedSound: 'number',
+  closestMissPx: 'number',
+  survivalMs: 'number',
+});
 
 export class PublicPlayerSchema extends Schema {
   playerId = '';
@@ -12,6 +39,11 @@ export class PublicPlayerSchema extends Schema {
   revealedX = -1;
   revealedY = -1;
   lockedAimAngleRad = 0;
+  inCurrentRoster = false;
+  readyForNextMatch = false;
+  rivalryWins = 0;
+  award = '';
+  resultStats = new EchoResultStatsSchema();
 }
 
 export class RecapEntrySchema extends Schema {
@@ -47,12 +79,18 @@ defineTypes(PublicPlayerSchema, {
   revealedX: 'number',
   revealedY: 'number',
   lockedAimAngleRad: 'number',
+  inCurrentRoster: 'boolean',
+  readyForNextMatch: 'boolean',
+  rivalryWins: 'number',
+  award: 'string',
+  resultStats: EchoResultStatsSchema,
 });
 
 export class InvisiFightRoomState extends Schema {
   protocolVersion = GAMEPLAY_CONFIG.protocolVersion;
   revision = 0;
   roomCode = '';
+  mode: GameMode = 'echo_hunt';
   phase: MatchPhase = 'lobby';
   phaseStartedAtServerMs = Date.now();
   phaseEndsAtServerMs = 0;
@@ -65,9 +103,10 @@ export class InvisiFightRoomState extends Schema {
   firingOrder = new ArraySchema<string>();
   recapEntries = new ArraySchema<RecapEntrySchema>();
 
-  constructor(roomCode = '') {
+  constructor(roomCode = '', mode: GameMode = 'echo_hunt') {
     super();
     this.roomCode = roomCode;
+    this.mode = mode;
   }
 }
 
@@ -75,6 +114,7 @@ defineTypes(InvisiFightRoomState, {
   protocolVersion: 'number',
   revision: 'number',
   roomCode: 'string',
+  mode: 'string',
   phase: 'string',
   phaseStartedAtServerMs: 'number',
   phaseEndsAtServerMs: 'number',

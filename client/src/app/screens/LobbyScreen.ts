@@ -7,11 +7,12 @@ import { matchViewStore } from '../../state/matchViewStore.js';
 import { sessionStore } from '../../state/sessionStore.js';
 import { disposeWhenDetached } from './disposeWhenDetached.js';
 import { screenFrame } from './screenFrame.js';
+import { copyInvite } from '../invites.js';
 
 export function LobbyScreen(): HTMLElement {
   delete document.documentElement.dataset.recapSeen;
   const screen = screenFrame(
-    'Room lobby',
+    'Classic · Room lobby',
     'Waiting for the fight',
     'Share the room code, then the host can start once two players are present.',
   );
@@ -32,7 +33,17 @@ export function LobbyScreen(): HTMLElement {
       label: 'Copy code',
       onClick: () => void navigator.clipboard?.writeText(session?.roomCode ?? ''),
     });
-    heading.append(title, copy);
+    const inviteStatus = document.createElement('span');
+    inviteStatus.setAttribute('role', 'status');
+    heading.append(
+      title,
+      copy,
+      Button({
+        label: 'Copy invite',
+        onClick: () => void copyInvite(session?.roomCode ?? '', 'classic', inviteStatus),
+      }),
+      inviteStatus,
+    );
     const roster = document.createElement('ul');
     roster.className = 'player-list';
     state.players.forEach((player) => {

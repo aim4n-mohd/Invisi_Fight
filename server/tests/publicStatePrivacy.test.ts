@@ -12,5 +12,36 @@ describe('public room state privacy', () => {
     expect(publicKeys).not.toContain('aimAngleRad');
     expect(publicKeys).toContain('revealedX');
     expect(publicKeys).toContain('revealedY');
+    expect(Object.keys(publicPlayer.toJSON()).sort()).toEqual(
+      [
+        'playerId',
+        'displayName',
+        'role',
+        'hearts',
+        'connected',
+        'alive',
+        'isHost',
+        'revealedX',
+        'revealedY',
+        'lockedAimAngleRad',
+        'inCurrentRoster',
+        'readyForNextMatch',
+        'rivalryWins',
+        'award',
+        'resultStats',
+      ].sort(),
+    );
+    expect(Object.keys(publicPlayer.resultStats.toJSON()).sort()).toEqual(
+      [
+        'shots',
+        'hits',
+        'damage',
+        'eliminations',
+        'sonarDetections',
+        'emittedSound',
+        'closestMissPx',
+        'survivalMs',
+      ].sort(),
+    );
   });
 });

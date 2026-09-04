@@ -35,4 +35,41 @@ describe('KeyboardMovementController', () => {
     window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space' }));
     expect(controller.consumeSonarTrigger()).toBe(true);
   });
+  it('leaves R unbound without queuing other gameplay actions', () => {
+    controller = new KeyboardMovementController(window);
+    const key = new KeyboardEvent('keydown', { code: 'KeyR', cancelable: true });
+    window.dispatchEvent(key);
+    expect(key.defaultPrevented).toBe(false);
+    expect(controller.consumeSonarTrigger()).toBe(false);
+    expect(controller.movement()).toEqual({ x: 0, y: 0 });
+    expect(controller.running()).toBe(false);
+  });
+
+  it('maps arrows and either Shift key without stacking equivalent bindings', () => {
+    controller = new KeyboardMovementController(window);
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'ArrowUp' }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW' }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'ShiftRight' }));
+    expect(controller.movement()).toEqual({ x: 0, y: -1 });
+    expect(controller.running()).toBe(true);
+    window.dispatchEvent(new KeyboardEvent('keyup', { code: 'ShiftRight' }));
+    expect(controller.running()).toBe(false);
+  });
+
+  it('clears held input and leaves text controls alone', () => {
+    controller = new KeyboardMovementController(window);
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyD' }));
+    const input = document.createElement('input');
+    document.body.append(input);
+    input.focus();
+    expect(controller.movement()).toEqual({ x: 0, y: 0 });
+    const event = new KeyboardEvent('keydown', { code: 'Space', bubbles: true, cancelable: true });
+    input.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+    const release = new KeyboardEvent('keyup', { code: 'Space', bubbles: true, cancelable: true });
+    input.dispatchEvent(release);
+    expect(release.defaultPrevented).toBe(false);
+    expect(controller.consumeSonarTrigger()).toBe(false);
+    input.remove();
+  });
 });

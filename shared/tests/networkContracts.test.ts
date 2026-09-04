@@ -1,14 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import {
   displayNameSchema,
+  decoyInputSchema,
+  echoActionStatusEventSchema,
+  fireInputSchema,
   lockShotSchema,
   playerInputSchema,
   privateSonarSnapshotEventSchema,
   publicSonarEmissionEventSchema,
+  publicSoundCueEventSchema,
   roomCodeSchema,
   sonarStatusEventSchema,
   shotLockStatusEventSchema,
   triggerSonarSchema,
+  nextMatchInputSchema,
 } from '../src/index.js';
 
 describe('network boundary contracts', () => {
@@ -45,6 +50,60 @@ describe('network boundary contracts', () => {
       clientTimeMs: 1_787_334_908_575n,
     });
     expect(parsed.clientTimeMs).toBe(1_787_334_908_575);
+    expect(parsed.running).toBe(false);
+  });
+
+  it('validates Echo action messages and anonymous sound cues strictly', () => {
+    const sessionToken = 's'.repeat(32);
+    expect(
+      fireInputSchema.parse({ sessionToken, aimAngleRad: 1, sequence: 2, clientTimeMs: 10 }),
+    ).toMatchObject({ aimAngleRad: 1, sequence: 2 });
+    expect(
+      decoyInputSchema.parse({ sessionToken, aimAngleRad: 0, sequence: 3, clientTimeMs: 11 }),
+    ).toMatchObject({ aimAngleRad: 0, sequence: 3 });
+    expect(
+      nextMatchInputSchema.parse({ sessionToken, ready: true, sequence: 4, clientTimeMs: 12 }),
+    ).toMatchObject({ ready: true, sequence: 4 });
+    const cue = publicSoundCueEventSchema.parse({
+      type: 'sound_cue',
+      cueId: 'cue-1',
+      profile: 'walk',
+      approximatePosition: { x: 10, y: 20 },
+      intensity: 0.25,
+      emittedAtServerMs: 100,
+      expiresAtServerMs: 900,
+    });
+    expect(Object.keys(cue).sort()).toEqual([
+      'approximatePosition',
+      'cueId',
+      'emittedAtServerMs',
+      'expiresAtServerMs',
+      'intensity',
+      'profile',
+      'type',
+    ]);
+    expect(publicSoundCueEventSchema.parse({ ...cue, profile: 'reload' }).profile).toBe('reload');
+    expect(() =>
+      publicSoundCueEventSchema.parse({ ...cue, profile: 'reload', playerId: 'p' }),
+    ).toThrow();
+    expect(cue).not.toHaveProperty('playerId');
+    expect(cue).not.toHaveProperty('decoy');
+    expect(() => publicSoundCueEventSchema.parse({ ...cue, trueOrigin: { x: 1, y: 2 } })).toThrow();
+    expect(
+      echoActionStatusEventSchema.parse({
+        type: 'echo_action_status',
+        action: 'decoy',
+        accepted: false,
+        reason: 'unavailable_decoy',
+        requestSequence: 8,
+        fireReadyAtServerMs: 0,
+        ammo: 3,
+        reloadEndsAtServerMs: 0,
+        sonarReadyAtServerMs: 0,
+        decoyAvailable: false,
+        serverTimeMs: 100,
+      }),
+    ).toMatchObject({ action: 'decoy', accepted: false });
   });
 
   it('validates strict manual-sonar request and event boundaries', () => {
@@ -89,6 +148,17 @@ describe('network boundary contracts', () => {
         expiresAtServerMs: 2_600,
       }),
     ).toMatchObject({ approximateOrigin: { x: 96, y: 240 }, radius: 320 });
+  });
+  it('rejects client-supplied ammo and reload deadlines', () => {
+    const request = {
+      sessionToken: 's'.repeat(32),
+      sequence: 1,
+      clientTimeMs: 100,
+      aimAngleRad: 0,
+    };
+    expect(fireInputSchema.parse(request)).toEqual(request);
+    expect(() => fireInputSchema.parse({ ...request, ammo: 3 })).toThrow();
+    expect(() => fireInputSchema.parse({ ...request, reloadEndsAtServerMs: 0 })).toThrow();
   });
 
   it('rejects sonar payloads that could leak undeclared exact or detection data', () => {

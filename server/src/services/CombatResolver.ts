@@ -19,6 +19,19 @@ export interface Combatant {
   alive: boolean;
   velocity: Vector2;
   inputSequence: number;
+  running: boolean;
+  fireReadyAtServerMs: number;
+  decoyAvailable: boolean;
+  lastFireSequence: number;
+  lastDecoySequence: number;
+}
+
+export interface ShotResolutionOptions {
+  aimAngleRad?: number;
+  hitRadiusPx?: number;
+  rangePx?: number;
+  requestSequence?: number;
+  includeOriginOverlap?: boolean;
 }
 
 function stablePairAngle(leftId: string, rightId: string): number {
@@ -88,14 +101,16 @@ export class CombatResolver {
     combatants: Combatant[],
     roundNumber: number,
     resolvedAtServerMs: number,
+    options: ShotResolutionOptions = {},
   ): ShotResolutionEvent {
+    const aimAngleRad = options.aimAngleRad ?? shooter.lockedAimAngleRad;
     const direction = {
-      x: Math.cos(shooter.lockedAimAngleRad),
-      y: Math.sin(shooter.lockedAimAngleRad),
+      x: Math.cos(aimAngleRad),
+      y: Math.sin(aimAngleRad),
     };
     const end = {
-      x: shooter.position.x + direction.x * GAMEPLAY_CONFIG.lockedShotRangePx,
-      y: shooter.position.y + direction.y * GAMEPLAY_CONFIG.lockedShotRangePx,
+      x: shooter.position.x + direction.x * (options.rangePx ?? GAMEPLAY_CONFIG.lockedShotRangePx),
+      y: shooter.position.y + direction.y * (options.rangePx ?? GAMEPLAY_CONFIG.lockedShotRangePx),
     };
     if (!shooter.alive) {
       return {
@@ -109,20 +124,41 @@ export class CombatResolver {
         cancelled: true,
         fatal: false,
         resolvedAtServerMs,
+        ...(options.requestSequence === undefined
+          ? {}
+          : { requestSequence: options.requestSequence }),
       };
     }
 
-    const hit = firstRayHit(
-      shooter.position,
-      shooter.lockedAimAngleRad,
-      combatants.map((combatant) => ({
-        id: combatant.playerId,
-        center: combatant.position,
-        radius: GAMEPLAY_CONFIG.shotHitRadiusPx,
-        alive: combatant.alive,
-      })),
-      shooter.playerId,
-    );
+    // Echo fighters pass through each other. If the ray starts inside a body,
+    // that is already the first intersection, not the circle's farther exit.
+    // Classic retains its original separated-body geometry and default path.
+    const originOverlap = options.includeOriginOverlap
+      ? combatants
+          .filter(
+            (candidate) =>
+              candidate.alive &&
+              candidate.playerId !== shooter.playerId &&
+              Math.hypot(
+                candidate.position.x - shooter.position.x,
+                candidate.position.y - shooter.position.y,
+              ) <= (options.hitRadiusPx ?? GAMEPLAY_CONFIG.shotHitRadiusPx),
+          )
+          .sort((left, right) => left.playerId.localeCompare(right.playerId))[0]
+      : undefined;
+    const hit = originOverlap
+      ? { id: originOverlap.playerId, distance: 0, point: { ...shooter.position } }
+      : firstRayHit(
+          shooter.position,
+          aimAngleRad,
+          combatants.map((combatant) => ({
+            id: combatant.playerId,
+            center: combatant.position,
+            radius: options.hitRadiusPx ?? GAMEPLAY_CONFIG.shotHitRadiusPx,
+            alive: combatant.alive,
+          })),
+          shooter.playerId,
+        );
     const target = hit ? combatants.find((combatant) => combatant.playerId === hit.id) : undefined;
     if (target) {
       target.hearts = Math.max(0, target.hearts - 1);
@@ -139,6 +175,9 @@ export class CombatResolver {
       cancelled: false,
       fatal: target ? !target.alive : false,
       resolvedAtServerMs,
+      ...(options.requestSequence === undefined
+        ? {}
+        : { requestSequence: options.requestSequence }),
     };
   }
 }

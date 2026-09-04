@@ -62,7 +62,10 @@ export const privateSnapshotStore = createStore<PrivateSnapshotState>((set) => (
   lastShotLockStatusSequence: -1,
   applyPlayerState: (playerState) =>
     set((state) =>
-      state.playerState && playerState.sequence <= state.playerState.sequence
+      state.playerState &&
+      (playerState.serverTimeMs < state.playerState.serverTimeMs ||
+        (playerState.serverTimeMs === state.playerState.serverTimeMs &&
+          playerState.sequence <= state.playerState.sequence))
         ? state
         : { playerState },
     ),
@@ -153,13 +156,17 @@ export const privateSnapshotStore = createStore<PrivateSnapshotState>((set) => (
       lastShotLockStatusSequence: -1,
     }),
   prune: (serverTimeMs) =>
-    set((state) => ({
-      detections: state.detections.filter((entry) => entry.expiresAtServerMs > serverTimeMs),
-      localSonarPulse:
+    set((state) => {
+      const detections = state.detections.filter((entry) => entry.expiresAtServerMs > serverTimeMs);
+      const localSonarPulse =
         state.localSonarPulse && state.localSonarPulse.expiresAtServerMs > serverTimeMs
           ? state.localSonarPulse
-          : null,
-    })),
+          : null;
+      return detections.length === state.detections.length &&
+        localSonarPulse === state.localSonarPulse
+        ? state
+        : { detections, localSonarPulse };
+    }),
   reset: () =>
     set({
       playerState: null,

@@ -7,7 +7,6 @@ describe('SessionService', () => {
     const token = service.issue({
       roomId: 'room-1',
       playerId: 'player-1',
-      role: 'host',
       expiresAtMs: 10_000,
     });
 
@@ -17,7 +16,7 @@ describe('SessionService', () => {
     const rotated = service.rotate(token, 1_000);
     expect(rotated).not.toBeNull();
     expect(service.verify(token, 'room-1', 1_000)).toBeNull();
-    expect(service.verify(rotated ?? '', 'room-1', 1_000)?.role).toBe('host');
+    expect(service.verify(rotated ?? '', 'room-1', 1_000)?.playerId).toBe('player-1');
     expect(service.revoke(rotated ?? '')).toBe(true);
     expect(service.verify(rotated ?? '', 'room-1', 1_000)).toBeNull();
   });
@@ -27,7 +26,6 @@ describe('SessionService', () => {
     const token = service.issue({
       roomId: 'room-1',
       playerId: 'p1',
-      role: 'player',
       expiresAtMs: 50,
     });
     expect(service.verify(token, 'room-1', 51)).toBeNull();

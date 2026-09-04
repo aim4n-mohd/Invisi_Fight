@@ -1,10 +1,45 @@
-export const MATCH_PHASES = ['lobby', 'hunt', 'commit', 'resolution', 'recap', 'results'] as const;
+export const GAME_MODES = ['echo_hunt', 'classic'] as const;
+export type GameMode = (typeof GAME_MODES)[number];
+export const CLASSIC_PHASES = [
+  'lobby',
+  'hunt',
+  'commit',
+  'resolution',
+  'recap',
+  'results',
+] as const;
+export type ClassicPhase = (typeof CLASSIC_PHASES)[number];
+export const ECHO_PHASES = ['lobby', 'countdown', 'echo_hunt', 'final_echo', 'results'] as const;
+export type EchoPhase = (typeof ECHO_PHASES)[number];
+export const MATCH_PHASES = [
+  'lobby',
+  'countdown',
+  'echo_hunt',
+  'final_echo',
+  'hunt',
+  'commit',
+  'resolution',
+  'recap',
+  'results',
+] as const;
 
 export type MatchPhase = (typeof MATCH_PHASES)[number];
 export type PlayerRole = 'host' | 'player' | 'spectator';
 export type ShotLockSource = 'explicit' | 'automatic';
 export type ConnectionStatus =
-  'idle' | 'connecting' | 'waking' | 'connected' | 'reconnecting' | 'disconnected' | 'error';
+  'idle' | 'checking' | 'connecting' | 'connected' | 'reconnecting' | 'disconnected' | 'error';
+
+export function isClassicPhase(phase: MatchPhase): phase is ClassicPhase {
+  return (CLASSIC_PHASES as readonly string[]).includes(phase);
+}
+
+export function isEchoPhase(phase: MatchPhase): phase is EchoPhase {
+  return (ECHO_PHASES as readonly string[]).includes(phase);
+}
+
+export function isLegalModePhase(mode: GameMode, phase: MatchPhase): boolean {
+  return mode === 'classic' ? isClassicPhase(phase) : isEchoPhase(phase);
+}
 
 export interface Vector2 {
   x: number;
@@ -34,6 +69,22 @@ export interface PublicPlayerState {
   isHost: boolean;
   revealedPosition: Vector2 | null;
   lockedAimAngleRad: number | null;
+  inCurrentRoster: boolean;
+  readyForNextMatch: boolean;
+  rivalryWins: number;
+  resultStats: EchoResultStats | null;
+  award: string | null;
+}
+
+export interface EchoResultStats {
+  shots: number;
+  hits: number;
+  damage: number;
+  eliminations: number;
+  sonarDetections: number;
+  emittedSound: number;
+  closestMissPx: number | null;
+  survivalMs: number;
 }
 
 export interface PublicMatchState {
@@ -41,6 +92,7 @@ export interface PublicMatchState {
   revision: number;
   roomId: string;
   roomCode: string;
+  mode: GameMode;
   phase: MatchPhase;
   phaseStartedAtServerMs: number;
   phaseEndsAtServerMs: number | null;
@@ -84,6 +136,7 @@ export interface ShotResolutionEvent {
   cancelled: boolean;
   fatal: boolean;
   resolvedAtServerMs: number;
+  requestSequence?: number;
 }
 
 export interface PlayerInputMessage {
@@ -92,6 +145,7 @@ export interface PlayerInputMessage {
   aimAngleRad: number;
   sequence: number;
   clientTimeMs: number;
+  running?: boolean;
 }
 
 export interface StartMatchMessage {

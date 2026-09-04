@@ -1,10 +1,7 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import type { PlayerRole } from '@invisi-fight/shared';
-
 export interface SessionRecord {
   roomId: string;
   playerId: string;
-  role: PlayerRole;
   expiresAtMs: number;
   revoked: boolean;
 }

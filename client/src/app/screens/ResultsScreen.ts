@@ -10,9 +10,9 @@ export function ResultsScreen(): HTMLElement {
   const localPlayerId = sessionStore.getState().roomSession?.playerId;
   const localWon = winner?.playerId === localPlayerId;
   const screen = screenFrame(
-    'Match complete',
+    'Classic · Match complete',
     localWon ? 'You survived the dark.' : `${winner?.displayName ?? 'The last fighter'} wins.`,
-    'The live room is still open. Reset the match state and return everyone to the lobby for another fight.',
+    'Return to the lobby for another match.',
   );
   const panel = document.createElement('div');
   panel.className = 'panel stack result-panel';

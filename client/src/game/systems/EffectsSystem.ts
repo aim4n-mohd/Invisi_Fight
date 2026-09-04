@@ -1,16 +1,15 @@
 import type Phaser from 'phaser';
 import { GAMEPLAY_CONFIG, type ShotResolutionEvent } from '@invisi-fight/shared';
 import { PHASER_THEME } from '../../ui/theme.js';
+import { gameAudio } from '../../audio/GameAudio.js';
 
 export class EffectsSystem {
   readonly #graphics: Phaser.GameObjects.Graphics;
-  readonly #scene: Phaser.Scene;
   readonly #audioEnabled: boolean;
   #lastShotId = '';
   #shownAtMs = 0;
 
   constructor(scene: Phaser.Scene, audioEnabled: boolean) {
-    this.#scene = scene;
     this.#audioEnabled = audioEnabled;
     this.#graphics = scene.add.graphics();
   }
@@ -21,7 +20,7 @@ export class EffectsSystem {
     if (event.shotId !== this.#lastShotId) {
       this.#lastShotId = event.shotId;
       this.#shownAtMs = nowMs;
-      if (this.#audioEnabled) this.#scene.sound.play('gunshot', { volume: 0.68 });
+      if (this.#audioEnabled) gameAudio.play('gunshot', 0.68);
     }
     const age = nowMs - this.#shownAtMs;
     if (age > GAMEPLAY_CONFIG.shotResultHoldMs) return;

@@ -15,10 +15,28 @@ function combatant(playerId: string, x: number, y: number, aim = 0): Combatant {
     alive: true,
     velocity: { x: 0, y: 0 },
     inputSequence: 0,
+    running: false,
+    fireReadyAtServerMs: 0,
+    decoyAvailable: true,
+    lastFireSequence: -1,
+    lastDecoySequence: -1,
   };
 }
 
 describe('CombatResolver', () => {
+  it('stops an Echo shot at an overlapping fighter before a farther ray intersection', () => {
+    const resolver = new CombatResolver();
+    const shooter = combatant('shooter', 100, 100);
+    const overlapping = combatant('overlap', 100, 100);
+    const farther = combatant('farther', 130, 100);
+    const shot = resolver.resolveShot(shooter, [shooter, farther, overlapping], 1, 1_000, {
+      hitRadiusPx: 26,
+      includeOriginOverlap: true,
+    });
+    expect(shot.targetId).toBe('overlap');
+    expect(shot.end).toEqual(shooter.position);
+    expect(farther.hearts).toBe(2);
+  });
   it('should separate exact overlaps deterministically', () => {
     const resolver = new CombatResolver();
     const players = [combatant('a', 300, 200), combatant('b', 300, 200)];
