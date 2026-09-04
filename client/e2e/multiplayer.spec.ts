@@ -10,7 +10,8 @@ test('@classic two players complete the readable v2 loop with sonar, locks, spec
   context,
   page: host,
 }) => {
-  test.setTimeout(120_000);
+  // Multiple real 15-second rounds plus software WebGL startup on WebKit.
+  test.setTimeout(180_000);
   await host.setViewportSize({ width: 1904, height: 884 });
   const guest = await context.newPage();
   await guest.setViewportSize({ width: 1904, height: 884 });
@@ -44,6 +45,8 @@ test('@classic two players complete the readable v2 loop with sonar, locks, spec
   ]);
   // Keep unattended automatic shots harmless during renderer/sonar setup.
   // The deliberate duel is aimed horizontally only after the spectator is ready.
+  const setupHostCanvas = (await host.locator('canvas').boundingBox())!;
+  await host.mouse.move(setupHostCanvas.x + setupHostCanvas.width / 2, setupHostCanvas.y + 5);
   const setupGuestCanvas = (await guest.locator('canvas').boundingBox())!;
   await guest.mouse.move(setupGuestCanvas.x + setupGuestCanvas.width / 2, setupGuestCanvas.y + 5);
   await expect(host.locator('#game-frame')).toHaveAttribute('data-renderer', 'three');
@@ -75,12 +78,25 @@ test('@classic two players complete the readable v2 loop with sonar, locks, spec
     expect(host.locator('#game-frame')).toHaveAttribute('data-private-detections', '1'),
     expect(guest.locator('#game-frame')).toHaveAttribute('data-public-sonar-emission-count', '1'),
   ]);
-  await host.waitForTimeout(3_100);
-  await expect(host.locator('#game-frame')).toHaveAttribute('data-phase', 'hunt');
+  // Render startup can put the first pulse near the end of Hunt. Wait for a
+  // playable window, not a fixed sleep that might finish during Commit/Recap.
+  await expect
+    .poll(
+      async () => ({
+        phase: await host.locator('#game-frame').getAttribute('data-phase'),
+        ready: await host.locator('.action-panel').getAttribute('data-ready'),
+        enoughTime: Number(await host.locator('.countdown__value').textContent()) >= 6,
+      }),
+      { timeout: 30_000 },
+    )
+    .toEqual({ phase: 'hunt', ready: 'true', enoughTime: true });
+  const emissionsBeforeSecondPulse = Number(
+    await guest.locator('#game-frame').getAttribute('data-public-sonar-emission-count'),
+  );
   await host.keyboard.press('Space');
   await expect(guest.locator('#game-frame')).toHaveAttribute(
     'data-public-sonar-emission-count',
-    '2',
+    String(emissionsBeforeSecondPulse + 1),
   );
 
   await expect(host.locator('#game-frame')).toHaveAttribute(
